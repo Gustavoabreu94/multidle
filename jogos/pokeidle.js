@@ -145,6 +145,8 @@ function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moe
       { titulo: 'Equipe', largo: true, vazio: 'Equipe não encontrada',
         linhas: equipe.map((p, i) => ({ esq: p.nome, meio: `Nv${p.nv}`, dir: `poder ${p.poder.toLocaleString('pt-BR')}`, destaque: i === 0 })) },
     ],
+    // Os números da sessão só existem no Modo Economia do jogo (configuração salva em cada janela)
+    dicaSemKpis: 'Ligue o Modo Economia no jogo (abra esta conta aqui no Multidle) para ver XP, lucro, abates e capturas.',
     pronto: !!nick && !/^[—–-]$/.test(nick), // logado e com a tela carregada (deslogado, o jogo mostra "—")
     ferramenta: equipe.length > 0, // dá para simular
   };

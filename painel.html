@@ -120,7 +120,7 @@ a{color:#b48cff}
 <div id="fundo" hidden><div id="modal"><div id="modal-cab"><span id="modal-titulo"></span><button id="modal-fechar" title="Fechar">&#x2715;</button></div><div id="modal-corpo"></div></div></div>
 <script>
 // Cartão que cada módulo de jogo devolve (jogos/*.js, função montar):
-// { nome, subtitulo, tempo, estado?: {texto, nivel: ok|alerta, dica, extra}, alerta, selos: [{rot, v, cor}], kpis: [{rot, v, h, sub, cor}],
+// { nome, subtitulo, tempo, estado?: {texto, nivel: ok|alerta, dica, extra}, alerta, dicaSemKpis?, selos: [{rot, v, cor}], kpis: [{rot, v, h, sub, cor}],
 //   blocos: [{titulo, largo?, vazio?, etiqueta?: {rot, n}, itens?: [{ico, n, nome, destaque?, apagado?}],
 //             linhas?: [{esq, meio?, dir, destaque?}]}], pronto, ferramenta }
 // Apoio (opcional): troque `pix` pela chave do projeto (de preferência aleatória)
@@ -178,8 +178,12 @@ function detalhes(c) {
   const selos = (c.selos || []).map((s) => `<span class="selo ${esc(s.cor)}" title="${esc(s.rot)} (total da conta)">${esc(s.rot)} <b>${esc(s.v)}</b></span>`).join('');
   const blocos = c.blocos || [];
   const colunas = blocos.map((b) => (b.largo ? '1.4fr' : '1fr')).join(' ');
+  // Sem os blocos da sessão (no PokeIdle, fora do Modo Economia): avisa em vez de deixar o espaço vazio
+  const kpis = c.kpis?.length
+    ? `<div class="kpis">${c.kpis.map(kpi).join('')}</div>`
+    : c.dicaSemKpis ? `<div class="bloco vazio">${esc(c.dicaSemKpis)}</div>` : '';
   return `<div class="linha-sub"><span class="sub-t">${esc(c.subtitulo)}</span><span class="selos">${selos}</span></div>`
-    + `<div class="kpis">${(c.kpis || []).map(kpi).join('')}</div>`
+    + kpis
     + `<div class="blocos" style="grid-template-columns:${colunas}">${blocos.map(bloco).join('')}</div>`;
 }
 

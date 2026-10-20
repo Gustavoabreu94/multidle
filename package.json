@@ -1,7 +1,7 @@
 {
   "name": "multidle",
   "productName": "Multidle",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Várias contas de jogos idle numa janela só, com um painel de resumo por conta",
   "license": "MIT",
