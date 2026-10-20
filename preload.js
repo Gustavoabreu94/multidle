@@ -12,4 +12,9 @@ contextBridge.exposeInMainWorld('api', {
   atualizar: () => ipcRenderer.send('atualizar'),
   ferramenta: (jogo, conta) => ipcRenderer.invoke('ferramenta', jogo, conta),
   acao: (conta, acao) => ipcRenderer.invoke('acao', conta, acao),
+  aoAtualizacao: (fn) => {
+    ipcRenderer.on('atualizacao', (_e, v) => fn(v));
+    ipcRenderer.invoke('versao-baixada').then((v) => v && fn(v)); // já baixada antes do painel abrir
+  },
+  instalarAtualizacao: () => ipcRenderer.send('instalar-atualizacao'),
 });

@@ -6,6 +6,7 @@ const { app, BrowserWindow, WebContentsView, ipcMain, session, shell } = require
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
+const { autoUpdater } = require('electron-updater');
 
 const JOGOS = Object.fromEntries([require('./jogos/pokeidle')].map((j) => [j.id, j]));
 
@@ -264,6 +265,25 @@ ipcMain.on('remover', async (_e, id) => {
   coletar();
 });
 ipcMain.on('entrar', (_e, id) => entrar(id));
+
+// Atualização automática pelas releases do GitHub: baixa em segundo plano, avisa no painel e instala
+// ao clicar no aviso (ou ao fechar o programa). Só na versão instalada.
+const VERIFICAR_ATUALIZACAO_MS = 6 * 3600_000;
+let versaoBaixada = null;
+function vigiarAtualizacoes() {
+  if (!app.isPackaged) return;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('update-downloaded', ({ version }) => {
+    versaoBaixada = version;
+    win.webContents.send('atualizacao', version);
+  });
+  autoUpdater.on('error', () => {}); // sem internet ou GitHub fora: tenta de novo no próximo ciclo
+  const verificar = () => autoUpdater.checkForUpdates().catch(() => {});
+  verificar();
+  setInterval(verificar, VERIFICAR_ATUALIZACAO_MS);
+}
+ipcMain.handle('versao-baixada', () => versaoBaixada);
+ipcMain.on('instalar-atualizacao', () => { if (versaoBaixada) autoUpdater.quitAndInstall(true, true); });
 ipcMain.on('atualizar', () => coletar());
 
 // Ferramenta do jogo (no PokeIdle, o simulador de hunt) numa área própria. Com conta: o jogo
@@ -323,5 +343,6 @@ if (!app.requestSingleInstanceLock()) {
     for (const c of contas) await carregarExtensoes(c);
     contas.forEach(criarView);
     setInterval(coletar, ATUALIZAR_MS);
+    vigiarAtualizacoes();
   });
 }

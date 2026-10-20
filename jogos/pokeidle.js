@@ -104,8 +104,8 @@ function parse(texto) {
   };
 }
 
-// Estado da caça do jogo -> selo do cartão; tudo que não é "caçando" deixa o cartão em alerta
-const ESTADOS = { cacando: 'ok', parado: 'aviso', fora: 'alerta', caindo: 'alerta' };
+// Estado da caça do jogo -> só dois selos no cartão: "Caçando" ou "Parado" (sem batalha, fora da hunt,
+// Centro Pokémon ou sem conexão; o motivo do jogo fica na dica do selo)
 
 // "8.318 / 13.344" -> 62 (% de vida)
 function porcentagem(hpTxt) {
@@ -118,7 +118,7 @@ function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moe
   const { hunt: nomeHunt, tempo: tempoTexto } = parse(texto);
   const tempo = relogio || tempoTexto;
   const hp = hpTxt ? porcentagem(hpTxt) : null;
-  const nivel = caca && ESTADOS[caca.id];
+  const cacando = caca?.id === 'cacando';
   const kpi = (rot, d, cor = '') => d && { rot, v: d.v, h: d.h, sub: d.sub, cor };
   const equipe = time.filter((p) => p.nome).sort((a, b) => b.poder - a.poder);
   const itens = mochila.filter((i) => i.q > 0 && doJogo(i.ico));
@@ -126,9 +126,9 @@ function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moe
     nome: nick,
     subtitulo: nomeHunt,
     tempo,
-    // Selo do estado (cor: ok/aviso/alerta) e a vida do Pokémon em campo
-    estado: nivel ? { texto: caca.texto, nivel, extra: hp != null ? `HP ${hp}%` : '' } : null,
-    alerta: !!nivel && nivel !== 'ok',
+    // Selo do estado e a vida do Pokémon em campo
+    estado: caca ? { texto: cacando ? 'Caçando' : 'Parado', nivel: cacando ? 'ok' : 'alerta', dica: caca.texto, extra: hp != null ? `HP ${hp}%` : '' } : null,
+    alerta: !!caca && !cacando,
     selos: [['Ouro', moedas.ouro, 'ouro'], ['Diamantes', moedas.diamantes, 'diam'], ['Gemas', moedas.gemas, 'gema']]
       .filter(([, v]) => v).map(([rot, v, cor]) => ({ rot, v, cor })),
     kpis: [kpi('XP treinador', kpis.xpTreinador), kpi('Lucro líquido', kpis.lucro, kpis.lucro ? sinal(kpis.lucro.v) : ''),
@@ -215,10 +215,13 @@ if (require.main === module) {
   assert.strictEqual(montar().pronto, false);
   assert.strictEqual(montar({ nick: '—' }).pronto, false);
   const parado = montar({ nick: 'X', caca: { id: 'parado', texto: 'parado há 2m' }, tempo: '1:02:03', hpTxt: '8.318 / 13.344', texto: '' });
-  assert.deepStrictEqual(parado.estado, { texto: 'parado há 2m', nivel: 'aviso', extra: 'HP 62%' });
+  assert.deepStrictEqual(parado.estado, { texto: 'Parado', nivel: 'alerta', dica: 'parado há 2m', extra: 'HP 62%' });
   assert.strictEqual(parado.alerta, true);
   assert.strictEqual(parado.tempo, '1:02:03');
-  assert.strictEqual(montar({ nick: 'X', caca: { id: 'cacando', texto: 'caçando' } }).alerta, false);
+  assert.strictEqual(montar({ nick: 'X', caca: { id: 'fora', texto: 'no Centro Pokémon' } }).estado.texto, 'Parado');
+  const cacandoSemEco = montar({ nick: 'X', caca: { id: 'cacando', texto: 'na hunt (sem Modo Economia)' } });
+  assert.strictEqual(cacandoSemEco.estado.texto, 'Caçando');
+  assert.strictEqual(cacandoSemEco.alerta, false);
   assert.strictEqual(montar({ nick: 'X' }).estado, null); // fora do modo economia: sem selo
   console.log('ok');
 }

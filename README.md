@@ -17,6 +17,7 @@ Hoje suporta o **[PokeIdle](https://pokeidle.io)**. Outros jogos idle podem ser 
 - **Simulador de hunt** (PokeIdle): o botão **Simular** do cartão leva a ficha do Pokémon mais forte para o [simulador do Lotuz](https://pokedex.lotuz.tech/hunt-sim) e já roda a simulação, numa janela por cima do painel.
 - **Reset** no cartão zera a sessão da conta (como o RESET do jogo), mesmo com ela escondida.
 - **♥ Apoiar:** Pix (com QR Code) e GitHub Sponsors, se você quiser apoiar o projeto.
+- **Atualização automática:** versões novas são baixadas em segundo plano; aparece **⬆ Atualizar** na barra de cima e um clique reinicia já atualizado (ou a atualização é instalada ao fechar o programa).
 - Links que saem do jogo (conectar Twitch/Kick) abrem numa janela à parte, com o login da mesma conta.
 - **Extensões do navegador** que você já usa no jogo funcionam dentro do Multidle (veja abaixo).
 
@@ -53,8 +54,8 @@ O instalador não é assinado digitalmente: na primeira vez o Windows pode mostr
 ### Dá para confiar no instalador?
 
 - **O código é aberto**: tudo o que o programa faz está neste repositório.
-- **O instalador é compilado pelo próprio GitHub** a partir deste código (veja `.github/workflows/release.yml`), sem passar pelo computador de ninguém. Cada release tem um **atestado de origem** que prova isso: `gh attestation verify "Multidle Setup X.Y.Z.exe" -R Gustavoabreu94/multidle`.
-- **Cada release mostra o SHA-256** do instalador. Confira o seu arquivo com `Get-FileHash ".\Multidle Setup X.Y.Z.exe"` no PowerShell.
+- **O instalador é compilado pelo próprio GitHub** a partir deste código (veja `.github/workflows/release.yml`), sem passar pelo computador de ninguém. Cada release tem um **atestado de origem** que prova isso: `gh attestation verify "Multidle-Setup-X.Y.Z.exe" -R Gustavoabreu94/multidle`.
+- **Cada release mostra o SHA-256** do instalador. Confira o seu arquivo com `Get-FileHash ".\Multidle-Setup-X.Y.Z.exe"` no PowerShell.
 - Instaladores novos e sem assinatura às vezes recebem 1 ou 2 alertas genéricos de antivírus (falso positivo comum em apps Electron). Na dúvida, compile você mesmo: `npm install` e `npm run dist`.
 
 Requisitos: Windows 10/11 e **Google Chrome** ou **Microsoft Edge** (usados só no login).

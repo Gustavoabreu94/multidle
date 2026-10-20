@@ -53,14 +53,16 @@ jobs:
         run: |
           exe=$(ls dist/*.exe)
           hash=$(sha256sum "$exe" | cut -d' ' -f1)
+          nome=$(basename "$exe")
           {
-            echo "Instale o \`Multidle Setup ${GITHUB_REF_NAME#v}.exe\` abaixo. Se já tiver o Multidle, feche-o antes: instalar por cima mantém as contas."
+            echo "Instale o \`$nome\` abaixo. Se já tiver o Multidle, feche-o antes: instalar por cima mantém as contas."
             echo
             echo "Se o Windows mostrar \"O Windows protegeu o computador\", clique em **Mais informações** → **Executar assim mesmo** (o instalador ainda não é assinado digitalmente)."
             echo
             echo "### Segurança"
-            echo "- Compilado pelo GitHub Actions a partir deste código, sem passar pelo computador de ninguém. Confira o [atestado de origem](https://github.com/$GITHUB_REPOSITORY/attestations) ou rode \`gh attestation verify \"Multidle Setup ${GITHUB_REF_NAME#v}.exe\" -R $GITHUB_REPOSITORY\`."
-            echo "- SHA-256: \`$hash\` (no PowerShell: \`Get-FileHash \".\\Multidle Setup ${GITHUB_REF_NAME#v}.exe\"\`)"
+            echo "- Compilado pelo GitHub Actions a partir deste código, sem passar pelo computador de ninguém. Confira o [atestado de origem](https://github.com/$GITHUB_REPOSITORY/attestations) ou rode \`gh attestation verify \"$nome\" -R $GITHUB_REPOSITORY\`."
+            echo "- SHA-256: \`$hash\` (no PowerShell: \`Get-FileHash \".\\$nome\"\`)"
             if [ -n "$VT_LINK" ]; then echo "- [Análise no VirusTotal]($VT_LINK)"; fi
           } > notas.md
-          gh release create "$GITHUB_REF_NAME" "$exe" --title "Multidle ${GITHUB_REF_NAME#v}" --notes-file notas.md
+          # latest.yml e .blockmap: o que a atualização automática do app consulta e baixa
+          gh release create "$GITHUB_REF_NAME" "$exe" dist/*.blockmap dist/latest.yml --title "Multidle ${GITHUB_REF_NAME#v}" --notes-file notas.md
