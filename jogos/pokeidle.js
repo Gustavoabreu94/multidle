@@ -1,0 +1,167 @@
+// Módulo do PokeIdle (pokeidle.io). Cada jogo do Multidle é um módulo assim: diz onde o jogo fica,
+// como saber se a conta está logada e como ler a tela para montar o cartão (formato em painel.html).
+// As funções `extrair`, `copiarFicha` e `preencherSimulador` rodam DENTRO das páginas (executeJavaScript),
+// então só podem usar o que existe lá.
+
+// Roda na página do jogo: só lê o que o jogo já mostra (blocos da sessão, equipe, Automações,
+// moedas, achados) e o resumo da hunt que ele mesmo guarda no localStorage
+function extrair() {
+  const txt = (el) => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
+  const nick = txt(document.getElementById('tr-nick'));
+  const kpis = {};
+  for (const k of document.querySelectorAll('.eco-kpi')) {
+    kpis[k.dataset.kpi] = { v: txt(k.querySelector('.eco-kpi-v')), h: txt(k.querySelector('.eco-kpi-h')), sub: txt(k.querySelector('.eco-kpi-sub')) };
+  }
+  const time = [...document.querySelectorAll('#time .poke-linha')].map((p) => ({
+    nome: txt(p.querySelector('.pl-nome')).replace(/Nv\d+|★/g, '').trim(),
+    nv: txt(p.querySelector('.pl-lv')).replace('Nv', ''),
+    poder: +(p.title.match(/poder (\d+)/)?.[1] ?? 0),
+  }));
+  // Bolas, revives e poções restantes: os botões do painel de Automações (sempre carregado)
+  const mochila = [...document.querySelectorAll('#auto-ball-opts .auto-chip, #auto-revive-opts .auto-chip, #auto-potion-opts .auto-chip')]
+    .map((b) => ({
+      nome: b.title.split(' — ')[0],
+      q: +txt(b.querySelector('.q')).replace(/\D/g, '') || 0,
+      ico: b.querySelector('img')?.src ?? '',
+      usando: b.classList.contains('on'), // marcado para uso automático
+    }));
+  const moedas = { ouro: txt(document.getElementById('tr-gold')), diamantes: txt(document.getElementById('tr-diamantes')), gemas: txt(document.getElementById('tr-gemas')) };
+  // Achados possíveis no lugar da hunt: o jogo esconde os que não caem ali (ex.: shiny na Outland)
+  const achados = [...document.querySelectorAll('#eco-achados .eco-slot')].filter((s) => !s.hidden)
+    .map((s) => ({ campo: s.dataset.campo, nome: s.title, ico: s.querySelector('img')?.src ?? '' }));
+  const lugar = txt(document.querySelector('#eco-achados .eco-achados-lugar')).replace(/^·\s*/, '');
+  let hunt = null;
+  try { hunt = JSON.parse(localStorage.getItem('sessao-hunt:' + nick.toLowerCase())); } catch {}
+  return { texto: document.body ? document.body.innerText : '', nick, kpis, time, mochila, moedas, achados, lugar, hunt };
+}
+
+// Roda na página do jogo: abre a ficha do Pokémon mais forte e aciona o "Copiar p/ ChatGPT" do jogo,
+// capturando o texto antes da área de transferência (a do usuário não é tocada). É a ficha que o
+// simulador de hunt aceita.
+async function copiarFicha() {
+  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+  const poder = (p) => +(p.title.match(/poder (\d+)/)?.[1] ?? 0);
+  const maior = [...document.querySelectorAll('#time .poke-linha')].sort((a, b) => poder(b) - poder(a))[0];
+  if (!maior) return '';
+  const jaAberta = !document.getElementById('ficha')?.classList.contains('hidden');
+  const original = navigator.clipboard.writeText;
+  let texto = '';
+  navigator.clipboard.writeText = async (t) => { texto = t; };
+  try {
+    document.getElementById('fi-gpt')?.remove(); // não confundir com o botão de uma ficha anterior
+    maior.querySelector('.pl-ficha').click();
+    for (let i = 0; i < 30 && !document.getElementById('fi-gpt'); i++) await espera(100);
+    document.getElementById('fi-gpt')?.click();
+    for (let i = 0; i < 30 && !texto; i++) await espera(100);
+  } finally {
+    navigator.clipboard.writeText = original;
+    if (!jaAberta) document.getElementById('ficha-fechar')?.click();
+  }
+  return texto;
+}
+
+// Roda na página do simulador: cola a ficha e simula
+function preencherSimulador(ficha) {
+  const campo = document.getElementById('sheet');
+  campo.value = ficha;
+  campo.dispatchEvent(new Event('input', { bubbles: true }));
+  campo.dispatchEvent(new Event('change', { bubbles: true }));
+  document.getElementById('run')?.click();
+}
+
+const doJogo = (url) => /^https:\/\/pokeidle\.io\//.test(url); // ícones só do próprio jogo
+const sinal = (v) => (/^[-−]/.test(String(v)) ? 'neg' : 'pos'); // o jogo usa "−" (sinal de menos) e "-"
+
+// Hunt e tempo só existem como texto: hunt é "Nome · nível N", tempo é a linha antes de "caçando"
+function parse(texto) {
+  const l = texto.split('\n').map((s) => s.trim()).filter(Boolean);
+  return {
+    hunt: l.find((s) => / · nível \d+/.test(s)) ?? '',
+    tempo: l[l.indexOf('caçando') - 1] ?? '',
+  };
+}
+
+// Dados da página -> cartão genérico do painel
+function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moedas = {}, achados = [], lugar = '', hunt = null } = {}) {
+  const { hunt: nomeHunt, tempo } = parse(texto);
+  const kpi = (rot, d, cor = '') => d && { rot, v: d.v, h: d.h, sub: d.sub, cor };
+  const equipe = time.filter((p) => p.nome).sort((a, b) => b.poder - a.poder);
+  const itens = mochila.filter((i) => i.q > 0 && doJogo(i.ico));
+  return {
+    nome: nick,
+    subtitulo: nomeHunt,
+    tempo,
+    selos: [['Ouro', moedas.ouro, 'ouro'], ['Diamantes', moedas.diamantes, 'diam'], ['Gemas', moedas.gemas, 'gema']]
+      .filter(([, v]) => v).map(([rot, v, cor]) => ({ rot, v, cor })),
+    kpis: [kpi('XP treinador', kpis.xpTreinador), kpi('Lucro líquido', kpis.lucro, kpis.lucro ? sinal(kpis.lucro.v) : ''),
+      kpi('Abates', kpis.abates), kpi('Capturas', kpis.capturas)].filter(Boolean),
+    blocos: [
+      { titulo: 'Mochila', vazio: 'Sem bolas, poções ou revives',
+        itens: itens.map((i) => ({ ico: i.ico, n: i.q, nome: i.nome + (i.usando ? ' · em uso automático' : ''), destaque: i.usando })) },
+      // Todos os achados possíveis no lugar da hunt; os que ainda não caíram ficam apagados
+      { titulo: lugar ? `Achados · ${lugar}` : 'Achados', etiqueta: { rot: 'Ouro', n: hunt?.gold ?? 0 },
+        itens: achados.filter((a) => doJogo(a.ico)).map((a) => {
+          const n = Number(hunt?.[a.campo]) || 0;
+          return { ico: a.ico, n, nome: a.nome, apagado: !n };
+        }) },
+      { titulo: 'Equipe', largo: true, vazio: 'Equipe não encontrada',
+        linhas: equipe.map((p, i) => ({ esq: p.nome, meio: `Nv${p.nv}`, dir: `poder ${p.poder.toLocaleString('pt-BR')}`, destaque: i === 0 })) },
+    ],
+    pronto: !!nick, // logado e com a tela do jogo carregada
+    ferramenta: equipe.length > 0, // dá para simular
+  };
+}
+
+module.exports = {
+  id: 'pokeidle',
+  nome: 'PokeIdle',
+  url: 'https://pokeidle.io/app',
+  // Domínios que ficam na janela da conta (o resto abre à parte); login do Google vai para o Chrome
+  hostsDaConta: /(^|\.)(pokeidle\.io|discord\.com)$/,
+  hostsLoginExterno: /(^|\.)google\.com$/,
+  // Termos do jogo (versão 2026-10-12): mais de 4 contas por pessoa/aparelho = banimento de TODAS
+  maxContas: 4,
+  avisoLimite: 'Limite de 4 contas por pessoa (regras do PokeIdle: mais que isso bane todas)',
+  // Login: a sessão do jogo fica no localStorage ("sessao") + cookies do domínio
+  origem: 'https://pokeidle.io',
+  logado: (storage) => !!storage.sessao,
+  ferramenta: { rotulo: 'Simular', titulo: 'Simulador de hunt (pokedex.lotuz.tech)', url: 'https://pokedex.lotuz.tech/hunt-sim',
+    dica: 'Simular a melhor hunt para o Pokémon mais forte', preparar: copiarFicha, aplicar: preencherSimulador },
+  extrair,
+  montar,
+};
+
+if (require.main === module) {
+  const assert = require('node:assert');
+  const c = montar({
+    texto: 'MODO ECONOMIA\nAncient Pupitar · nível 150\nSESSÃO\n14:37\ncaçando\nXP TREINADOR',
+    nick: 'Timoteo',
+    kpis: { lucro: { v: '−9.322', h: '−38.256/h', sub: '' }, abates: { v: '142', h: '583/h', sub: 'um a cada 6s' } },
+    time: [{ nome: 'Charizard', nv: '88', poder: 340 }, { nome: 'Golem', nv: '717', poder: 2312 }, { nome: '', nv: '', poder: 0 }],
+    mochila: [
+      { nome: 'Ultra Ball', q: 51356, ico: 'https://pokeidle.io/assets/site/assets/ui/ball-ultra.png', usando: true },
+      { nome: 'Poke Ball', q: 0, ico: 'https://pokeidle.io/assets/site/assets/ui/ball-poke.png', usando: true },
+      { nome: 'Estranho', q: 5, ico: 'https://outro.site/x.png', usando: false },
+    ],
+    moedas: { ouro: '207.596.603', diamantes: '5', gemas: '' },
+    achados: [
+      { campo: 'bossTokens', nome: 'Boss Tokens', ico: 'https://pokeidle.io/assets/site/assets/items/bronze_boss_token.png' },
+      { campo: 'fragShiny', nome: 'Fragmento de Shiny Stone', ico: 'https://pokeidle.io/img/itens/shiny-stone.png' },
+    ],
+    lugar: 'Outland',
+    hunt: { gold: 2823982, fragShiny: 2 },
+  });
+  assert.strictEqual(c.nome, 'Timoteo');
+  assert.strictEqual(c.subtitulo, 'Ancient Pupitar · nível 150');
+  assert.strictEqual(c.tempo, '14:37');
+  assert.deepStrictEqual(c.selos.map((s) => s.rot), ['Ouro', 'Diamantes']);
+  assert.deepStrictEqual(c.kpis.map((k) => [k.rot, k.cor]), [['Lucro líquido', 'neg'], ['Abates', '']]);
+  const [mochilaB, achadosB, equipeB] = c.blocos;
+  assert.deepStrictEqual(mochilaB.itens.map((i) => i.n), [51356]);
+  assert.strictEqual(achadosB.titulo, 'Achados · Outland');
+  assert.strictEqual(achadosB.etiqueta.n, 2823982);
+  assert.deepStrictEqual(achadosB.itens.map((i) => [i.n, i.apagado]), [[0, true], [2, false]]);
+  assert.deepStrictEqual(equipeB.linhas.map((l) => [l.esq, l.destaque]), [['Golem', true], ['Charizard', false]]);
+  assert.strictEqual(montar().pronto, false);
+  console.log('ok');
+}

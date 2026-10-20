@@ -1,0 +1,28 @@
+{
+  "name": "multidle",
+  "productName": "Multidle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Várias contas de jogos idle numa janela só, com um painel de resumo por conta",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node jogos/pokeidle.js",
+    "dist": "npm test && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "io.github.gustavoabreu94.multidle",
+    "files": ["main.js", "preload.js", "painel.html", "jogos/**"],
+    "directories": { "output": "dist" },
+    "win": { "target": "nsis", "signAndEditExecutable": false },
+    "nsis": { "oneClick": true, "perMachine": false, "createDesktopShortcut": true, "createStartMenuShortcut": true }
+  },
+  "allowScripts": {
+    "electron": true
+  }
+}
