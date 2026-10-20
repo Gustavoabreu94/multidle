@@ -258,6 +258,7 @@ ipcMain.on('janela', (_e, acao) => {
 ipcMain.handle('jogos', () => Object.values(JOGOS).map(({ id, nome, maxContas, avisoLimite, ferramenta, apoioTerceiros, acoes, venda }) => ({
   id, nome, maxContas, avisoLimite, apoioTerceiros,
   venda: venda && { rotulo: venda.rotulo, dica: venda.dica },
+  depot: !!JOGOS[id].depot,
   acoes: (acoes ?? []).map(({ id: acao, rotulo, dica, confirmar }) => ({ id: acao, rotulo, dica, confirmar })),
   ferramenta: ferramenta && { rotulo: ferramenta.rotulo, titulo: ferramenta.titulo, dica: ferramenta.dica },
 })));
@@ -276,6 +277,22 @@ ipcMain.handle('venda-concluir', async (_e, id, vender) => {
   const ok = await views.get(id).webContents.executeJavaScript(`(${venda.concluir})(${vender ? 'true' : 'false'})`).catch(() => false);
   setTimeout(coletar, 1500);
   return ok;
+});
+
+// Depot: listar (abre e fecha a ficha de cada Pokémon, por isso sem desaceleração) e guardar na Coleção
+async function rodarSemDesacelerar(id, codigo) {
+  const pagina = views.get(id).webContents;
+  pagina.setBackgroundThrottling(false);
+  return pagina.executeJavaScript(codigo).catch((e) => ({ erro: e.message })).finally(() => pagina.setBackgroundThrottling(true));
+}
+ipcMain.handle('depot-listar', (_e, id) => {
+  const depot = jogoDe(id)?.depot;
+  return depot ? rodarSemDesacelerar(id, `(${depot.listar})()`) : { erro: 'Este jogo não tem Depot no Multidle.' };
+});
+ipcMain.handle('depot-guardar', async (_e, id, chave) => {
+  const depot = jogoDe(id)?.depot;
+  if (!depot || typeof chave !== 'string') return false;
+  return views.get(id).webContents.executeJavaScript(`(${depot.guardar})(${JSON.stringify(chave)})`).catch(() => false);
 });
 
 // Ação do jogo numa conta (ex.: RESET da sessão), mesmo com a conta escondida
@@ -439,7 +456,10 @@ const enviarLives = async () => win?.webContents.send('lives', {
 
 async function vigiarLives() {
   if (!config.lives) return enviarLives();
-  const fonte = contas.find((c) => ultimosCartoes.get(c.id)?.twitchVinculada && JOGOS[c.jogo].live);
+  const vinculadas = contas.filter((c) => ultimosCartoes.get(c.id)?.twitchVinculada && JOGOS[c.jogo].live);
+  // A leitura abre e fecha uma tela do jogo: numa conta aberta na frente do usuário isso piscava e podia
+  // fechar a janela que ele estava usando. Só lê de conta escondida; se não houver, mantém a última lista.
+  const fonte = vinculadas.find((c) => !naJanela.has(c.id));
   if (!fonte) return enviarLives();
   const jogo = JOGOS[fonte.jogo];
   const pagina = views.get(fonte.id).webContents;

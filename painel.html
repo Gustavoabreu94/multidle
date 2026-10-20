@@ -87,6 +87,13 @@ main{flex:1;min-height:0;padding:8px}
 
 .apoiar{background:none;color:#ff7bb0;border:1px solid #4a3550;margin-right:6px}
 .selo.twitch b{color:#b48cff}
+#modal.depot{width:min(760px,94%)}
+table.depot{width:100%;border-collapse:collapse;font-size:13px}
+table.depot th{color:#c9a8d4;font-size:11px;text-transform:uppercase;text-align:left;padding:4px 6px;border-bottom:1px solid #4a3550}
+table.depot td{padding:4px 6px;border-bottom:1px solid #2f2134;font-variant-numeric:tabular-nums}
+table.depot tr.guardado{opacity:.45}
+table.depot button{padding:2px 8px}
+.depot-rodape{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px}
 #modal.lives #modal-corpo{display:flex;flex-direction:column;gap:8px;padding:8px}
 .lives-barra{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#c9a8d4;font-size:12px;flex:none}
 .lives-barra label{display:flex;align-items:center;gap:6px;font-weight:700;color:#f3e9f5;cursor:pointer}
@@ -228,7 +235,7 @@ function render() {
     const ferramenta = c.ferramenta && jogo?.ferramenta
       ? `<button data-ferramenta="${esc(c.conta)}" title="${esc(jogo.ferramenta.dica)}">${esc(jogo.ferramenta.rotulo)}</button>` : '';
     const acoes = (c.pronto ? (jogo?.acoes ?? []).map((a) => `<button data-acao="${esc(a.id)}" data-acao-conta="${esc(c.conta)}" title="${esc(a.dica)}">${esc(a.rotulo)}</button>`).join('') : '')
-      + (c.pronto && jogo?.venda ? `<button data-vender="${esc(c.conta)}" title="${esc(jogo.venda.dica)}">${esc(jogo.venda.rotulo)}</button>` : '');
+      + (c.pronto && jogo?.depot ? `<button data-depot="${esc(c.conta)}" title="Ver o Depot, guardar na Coleção e vender o resto">Depot</button>` : '');
     const bts = `<span class="bts">${acoes}${ferramenta}` + (aberta
       ? `<button data-max="${esc(c.conta)}" title="Ocupar o programa todo">&#x2922;</button><button data-fechar="${esc(c.conta)}" title="Esconder">&#x2013;</button>`
       : `<button class="remover" data-remover="${esc(c.conta)}" title="Remover esta conta do Multidle">&#x2715;</button>`) + '</span>';
@@ -254,7 +261,7 @@ $('#t').addEventListener('click', (e) => {
     if (a && (!a.confirmar || confirm(`${c.nome || c.conta}: ${a.confirmar}`))) window.api.acao(c.conta, a.id);
     return;
   }
-  if (b?.dataset.vender) return venderDepot(b.dataset.vender, b);
+  if (b?.dataset.depot) return abrirDepot(b.dataset.depot);
   if (b?.dataset.max) { maximizada = b.dataset.max; return layout(); }
   if (b?.dataset.fechar) { abertas.delete(b.dataset.fechar); return render(); }
   if (b?.dataset.remover) {
@@ -286,6 +293,40 @@ async function venderDepot(conta, botao) {
   await window.api.vendaConcluir(conta, sim);
 }
 
+// Depot: lista com os dados da ficha (do melhor para o pior pela nota), "→ Coleção" em cada um (sai da
+// venda) e "Vender o resto" pela confirmação do jogo
+async function abrirDepot(conta) {
+  const c = contas.find((x) => x.conta === conta);
+  abrirModal(`Depot · ${c.nome || conta}`, '<div class="fraco">Lendo o Depot (abre a ficha de cada Pokémon, alguns segundos)...</div>', true);
+  $('#modal').classList.add('depot');
+  modal = 'depot';
+  layout();
+  const r = await window.api.depotListar(conta);
+  if (modal !== 'depot') return; // fechou enquanto lia
+  if (r.erro) return void ($('#modal-corpo').innerHTML = `<div class="neg">${esc(r.erro)}</div>`);
+  const num = (s) => Number(String(s).replace(/\./g, '').replace(',', '.')) || 0;
+  const lista = r.lista.sort((a, b) => num(b.nota) - num(a.nota));
+  const linhas = lista.map((p) => `<tr data-chave="${esc(p.chave)}">`
+    + `<td>${p.shiny ? '✨ ' : ''}<b>${esc(p.nome)}</b> <span class="fraco">Nv${esc(p.nv)}</span>${p.novo ? ' <span class="pos">novo</span>' : ''}</td>`
+    + `<td class="${p.potencia === 'P5' ? 'pos' : ''}">${esc(p.potencia)}</td><td>${esc(p.iv)}</td><td>${esc(p.qualidade)}</td>`
+    + `<td><b>${esc(p.nota)}</b> <span class="fraco">${esc(p.faixa)}</span></td>`
+    + `<td><button data-guardar="${esc(p.chave)}" title="Enviar para a Coleção: sai da venda">→ Coleção</button></td></tr>`).join('');
+  $('#modal-corpo').innerHTML = lista.length
+    ? `<table class="depot"><thead><tr><th>Pokémon</th><th>Pot.</th><th>IV</th><th>Qual.</th><th>Nota</th><th></th></tr></thead><tbody>${linhas}</tbody></table>`
+      + `<div class="depot-rodape"><span class="fraco">${esc(r.venda)}</span><button id="depot-vender">Vender o resto</button></div>`
+    : '<div class="fraco">O Depot está vazio.</div>';
+  $('#modal-corpo').onclick = async (e) => {
+    const b = e.target.closest('button');
+    if (b?.dataset.guardar) {
+      b.disabled = true;
+      const ok = await window.api.depotGuardar(conta, b.dataset.guardar);
+      b.textContent = ok ? 'Na Coleção ✓' : 'Não deu';
+      b.closest('tr').classList.toggle('guardado', ok);
+    }
+    if (b?.id === 'depot-vender') { await venderDepot(conta, b); abrirDepot(conta); } // relê depois da venda
+  };
+}
+
 // A ferramenta do jogo abre em modal por cima do painel; fechar volta tudo como estava
 async function abrirFerramenta(jogo, conta, botao) {
   const rotulo = botao?.textContent;
@@ -303,7 +344,8 @@ function abrirModal(titulo, html, pequeno) {
   $('#modal-titulo').textContent = titulo;
   $('#modal-corpo').innerHTML = html;
   $('#modal').classList.toggle('pequeno', pequeno);
-  $('#modal').classList.remove('lives');
+  $('#modal').classList.remove('lives', 'depot');
+  $('#modal-corpo').onclick = null; // o clique do modal anterior (ex.: Depot) não vale para o próximo
 }
 
 // Lives da Twitch: o programa abre/fecha/reconecta; aqui só mostra e liga/desliga

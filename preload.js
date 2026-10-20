@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   ferramenta: (jogo, conta) => ipcRenderer.invoke('ferramenta', jogo, conta),
   acao: (conta, acao) => ipcRenderer.invoke('acao', conta, acao),
   vendaPreparar: (conta) => ipcRenderer.invoke('venda-preparar', conta),
+  depotListar: (conta) => ipcRenderer.invoke('depot-listar', conta),
+  depotGuardar: (conta, chave) => ipcRenderer.invoke('depot-guardar', conta, chave),
   vendaConcluir: (conta, vender) => ipcRenderer.invoke('venda-concluir', conta, vender),
   aoAtualizacao: (fn) => {
     ipcRenderer.on('atualizacao', (_e, v) => fn(v));

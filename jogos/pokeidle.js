@@ -139,6 +139,49 @@ async function prepararVenda() {
   };
 }
 
+// Roda na página do jogo: lista o Depot (aba do Modo Economia) com os dados da ficha de cada Pokémon. O
+// quadradinho do Depot só tem nome e nível; a ficha (abre e fecha, sem mudar nada) tem potência,
+// qualidade, IV, nota e poder.
+async function listarDepot() {
+  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+  const txt = (el) => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
+  const aba = document.querySelector('.eco-aba[data-eco-aba="depot"]');
+  if (!aba) return { erro: 'Ligue o Modo Economia desta conta para ver o Depot pelo Multidle.' };
+  if (!aba.classList.contains('on')) aba.click();
+  await espera(400);
+  const ficha = document.getElementById('ficha');
+  if (!ficha.classList.contains('hidden')) return { erro: 'Há uma ficha aberta nesta conta. Abra a conta e feche-a.' };
+  const lista = [];
+  for (const pk of [...document.querySelectorAll('#eco-cofre-corpo .eco-pk')].slice(0, 80)) {
+    const [nome, nv] = (pk.title || '').split(' · ');
+    const item = { chave: pk.dataset.chave, nome: nome ?? '', nv: (nv ?? '').replace('Nv ', ''), novo: !!pk.querySelector('.eco-pk-novo') };
+    pk.querySelector('.eco-pk-abrir')?.click();
+    for (let i = 0; i < 20 && ficha.classList.contains('hidden'); i++) await espera(50);
+    const corpo = document.getElementById('ficha-corpo');
+    const selo = (classe) => txt(corpo.querySelector(`.pk-selo-${classe}`)).replace(/^\D+/, '');
+    const texto = corpo.innerText.replace(/\s+/g, ' ');
+    item.potencia = (texto.match(/POTÊNCIA (P\d)/i) ?? [])[1] ?? '';
+    item.qualidade = selo('q');
+    item.iv = selo('iv');
+    const nota = texto.match(/([\d,]+) \/ 10,0 ([A-ZÁÉÍÓÚÂÊÔÃÕÇ ]+?) (?:STATS|$)/);
+    item.nota = nota?.[1] ?? '';
+    item.faixa = (nota?.[2] ?? '').trim().toLowerCase();
+    item.shiny = /shiny|✨/i.test(txt(document.getElementById('ficha-titulo')) + txt(corpo.querySelector('.fi-nome')));
+    lista.push(item);
+    document.getElementById('ficha-fechar').click();
+    await espera(60);
+  }
+  const venda = txt(document.querySelector('#eco-cofre-corpo .mk-vt-info'));
+  return { lista, venda };
+}
+
+// Roda na página do jogo: "Enviar para a Coleção" do Pokémon (sai da venda ao NPC), pelo botão do jogo
+function moverParaColecao(chave) {
+  const botao = document.querySelector(`#eco-cofre-corpo .eco-pk[data-chave="${CSS.escape(chave)}"] .eco-pk-mover[data-para="colecao"]`);
+  botao?.click();
+  return !!botao;
+}
+
 function concluirVenda(vender) {
   const caixa = document.getElementById('confirmar');
   if (caixa.classList.contains('hidden')) return false;
@@ -260,6 +303,8 @@ module.exports = {
   aoEsconder: voltarEconomia,
   // Vender o Depot pelo cartão (duas etapas, ver prepararVenda)
   venda: { rotulo: 'Vender Depot', dica: 'Vende o Depot pela confirmação do próprio jogo (a Coleção fica de fora)', preparar: prepararVenda, concluir: concluirVenda },
+  // Lista do Depot com os dados da ficha, e "Enviar para a Coleção" (tira da venda)
+  depot: { listar: listarDepot, guardar: moverParaColecao },
   // Botões no cartão que acionam o próprio jogo (funcionam com a conta escondida)
   acoes: [{ id: 'reset', rotulo: 'Reset', dica: 'Zera a sessão desta conta (XP, lucro, abates...), como o RESET do jogo',
     confirmar: 'Zerar a sessão desta conta? XP, lucro, abates, capturas e achados da sessão voltam a 0 (a conta e os itens não mudam).',
