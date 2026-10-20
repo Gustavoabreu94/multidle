@@ -18,6 +18,8 @@ jobs:
       VT_API_KEY: ${{ secrets.VT_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # histórico e tags: as notas listam o que mudou desde a versão anterior
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -54,8 +56,14 @@ jobs:
           exe=$(ls dist/*.exe)
           hash=$(sha256sum "$exe" | cut -d' ' -f1)
           nome=$(basename "$exe")
+          anterior=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
           {
-            echo "Instale o \`$nome\` abaixo. Se já tiver o Multidle, feche-o antes: instalar por cima mantém as contas."
+            echo "### O que mudou"
+            # título e tópicos de cada commit desde a versão anterior (sem as linhas de coautoria)
+            git log --format='**%s**%n%b' ${anterior:+$anterior..}"$GITHUB_REF_NAME" | grep -v -i '^Co-Authored-By' | grep -v '^$' || true
+            echo
+            echo "### Instalação"
+            echo "Quem já usa o Multidle recebe esta versão sozinho (aparece **⬆ Atualizar** na barra). Para instalar do zero, baixe o \`$nome\` abaixo."
             echo
             echo "Se o Windows mostrar \"O Windows protegeu o computador\", clique em **Mais informações** → **Executar assim mesmo** (o instalador ainda não é assinado digitalmente)."
             echo

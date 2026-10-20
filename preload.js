@@ -18,8 +18,10 @@ contextBridge.exposeInMainWorld('api', {
   },
   instalarAtualizacao: () => ipcRenderer.send('instalar-atualizacao'),
   aoLives: (fn) => ipcRenderer.on('lives', (_e, l) => fn(l)),
+  aoVoltar: (fn) => ipcRenderer.on('voltar', () => fn()),
   livesLigar: (ligar) => ipcRenderer.send('lives-ligar', ligar),
   livesPedir: () => ipcRenderer.send('lives-pedir'),
   livesEntrar: () => ipcRenderer.send('lives-entrar'),
   livesMax: (n) => ipcRenderer.send('lives-max', n),
+  livesSoChat: (soChat) => ipcRenderer.send('lives-so-chat', soChat),
 });

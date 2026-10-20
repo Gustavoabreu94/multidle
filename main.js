@@ -220,15 +220,36 @@ ipcMain.on('layout', (_e, mapa) => {
   for (const [id, v] of views) {
     const r = mapa[id];
     if (r) {
+      if (!naJanela.has(id)) {
+        if (id.startsWith(LIVE)) janelaLives?.contentView.removeChildView(v); // sai da janela invisível
+        win.contentView.addChildView(v);
+        naJanela.add(id);
+      }
       v.setBounds(r);
-      if (!naJanela.has(id)) { win.contentView.addChildView(v); naJanela.add(id); }
     } else if (naJanela.delete(id)) {
       win.contentView.removeChildView(v);
+      if (id.startsWith(LIVE)) { guardarLive(v); continue; } // live escondida volta para a janela invisível
       const aoEsconder = jogoDe(id)?.aoEsconder; // só contas (ferramentas e lives não têm jogo)
       if (aoEsconder) v.webContents.executeJavaScript(`(${aoEsconder})()`).then((mudou) => mudou && setTimeout(coletar, 2000)).catch(() => {});
     }
   }
+  if (mapa[VOLTAR]) win.contentView.addChildView(views.get(VOLTAR)); // reposiciona por cima da conta maximizada
 });
+// Botão "Voltar ao painel" por cima da conta maximizada: a página do jogo cobre o painel, então o
+// botão é uma área própria (pequena e transparente) posta acima dela, no centro do topo
+const VOLTAR = '__voltar';
+const HTML_VOLTAR = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:transparent;overflow:hidden}
+a{display:flex;align-items:center;justify-content:center;height:100%;border-radius:0 0 10px 10px;background:rgba(22,15,25,.72);
+color:#f3e9f5;font:600 12px system-ui;text-decoration:none;opacity:.75}a:hover{opacity:1;background:#9b4dca}</style>
+<a href="https://multidle.local/voltar" title="Sair do modo maximizado e voltar aos cartões">&#x2921; Voltar ao painel</a>`;
+function criarBotaoVoltar() {
+  const v = new WebContentsView();
+  v.setBackgroundColor('#00000000');
+  v.webContents.on('will-navigate', (e) => { e.preventDefault(); win.webContents.send('voltar'); });
+  v.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(HTML_VOLTAR)}`);
+  views.set(VOLTAR, v);
+}
+
 ipcMain.on('janela', (_e, acao) => {
   if (acao === 'min') win.minimize();
   if (acao === 'max') win.isMaximized() ? win.unmaximize() : win.maximize();
@@ -331,12 +352,26 @@ const config = fs.existsSync(ARQ_CONFIG) ? JSON.parse(fs.readFileSync(ARQ_CONFIG
 const salvarConfig = () => fs.writeFileSync(ARQ_CONFIG, JSON.stringify(config));
 const LIVE = '__live:'; // prefixo da área de cada live no layout
 const VIGIAR_LIVES_MS = 2 * 60_000;
-const RECARREGAR_SEM_DETECTAR_MS = 5 * 60_000;
+// A lista de quem está no chat que a Twitch dá ao jogo demora alguns minutos para atualizar (no teste,
+// ~5 min); recarregar antes disso sai e entra da sala de novo e pode zerar a espera
+const RECARREGAR_SEM_DETECTAR_MS = 10 * 60_000;
 const lives = new Map(); // login -> { view, nome, aqui, desde }
 let canaisOficiais = [];
 
+// Live solta (fora de janela) fica com largura 0 e o chat da Twitch NUNCA entra na sala do canal (testado:
+// loga no chat mas não manda o JOIN, e o jogo não acha o jogador). Por isso as lives moram numa janela
+// invisível de tamanho normal, sem desacelerar; o modal só pega emprestado para mostrar.
+const LIVE_TAMANHO = { x: 0, y: 0, width: 1280, height: 720 };
+let janelaLives = null;
+function guardarLive(v) {
+  janelaLives ??= new BrowserWindow({ show: false, ...LIVE_TAMANHO, skipTaskbar: true, title: 'Multidle — lives' });
+  janelaLives.contentView.addChildView(v);
+  v.setBounds(LIVE_TAMANHO);
+}
+
 function abrirLive(login, nome, url) {
-  const v = new WebContentsView({ webPreferences: { partition: 'persist:twitch' } });
+  const v = new WebContentsView({ webPreferences: { partition: 'persist:twitch', backgroundThrottling: false } });
+  guardarLive(v);
   const wc = v.webContents;
   wc.setAudioMuted(true);
   wc.setWindowOpenHandler(({ url: externo }) => { shell.openExternal(externo); return { action: 'deny' }; });
@@ -349,13 +384,14 @@ function abrirLive(login, nome, url) {
   });
   wc.loadURL(url);
   views.set(LIVE + login, v);
-  lives.set(login, { view: v, nome, aqui: false, desde: Date.now() });
+  lives.set(login, { view: v, nome, url, aqui: false, desde: Date.now() });
 }
 
 function fecharLive(login) {
   const l = lives.get(login);
   if (!l) return;
   if (naJanela.delete(LIVE + login)) win.contentView.removeChildView(l.view);
+  else janelaLives?.contentView.removeChildView(l.view);
   l.view.webContents.close();
   views.delete(LIVE + login);
   lives.delete(login);
@@ -364,9 +400,15 @@ function fecharLive(login) {
 const jogoComLive = () => Object.values(JOGOS).find((j) => j.live);
 const maxLives = (jogo) => Math.min(jogo.live.limite, Math.max(1, Number(config.maxLives) || jogo.live.padrao));
 
-const enviarLives = () => win?.webContents.send('lives', {
+// Conta da Twitch logada nas lives (cookie "login" da Twitch), para o modal dizer se precisa entrar
+const usuarioTwitch = async () => (await session.fromPartition('persist:twitch').cookies.get({ domain: 'twitch.tv', name: 'login' }).catch(() => []))[0]?.value ?? '';
+
+const enviarLives = async () => win?.webContents.send('lives', {
+  disponivel: !!config.mostrarLives, // recurso experimental: o botão só aparece para quem liga nas configurações
   ligado: !!config.lives,
+  soChat: !!config.livesSoChat,
   entrando: entrandoTwitch,
+  usuario: await usuarioTwitch(),
   max: maxLives(jogoComLive()),
   limite: jogoComLive().live.limite,
   abertas: [...lives].map(([login, l]) => ({ login, nome: l.nome, aqui: l.aqui })),
@@ -386,9 +428,11 @@ async function vigiarLives() {
   canaisOficiais = canais;
   const queremos = canais.filter((c) => c.aoVivo && c.bonus).slice(0, maxLives(jogo));
   for (const login of [...lives.keys()]) if (!queremos.some((c) => c.login === login)) fecharLive(login);
+  const urlDe = (login) => (config.livesSoChat ? jogo.live.urlChat(login) : jogo.live.url(login));
   for (const c of queremos) {
     const l = lives.get(c.login);
-    if (!l) { abrirLive(c.login, c.nome, jogo.live.url(c.login)); continue; }
+    if (l && l.url !== urlDe(c.login)) fecharLive(c.login); // trocou entre "só o chat" e "live com vídeo"
+    if (!lives.has(c.login)) { abrirLive(c.login, c.nome, urlDe(c.login)); continue; }
     l.aqui = c.aqui;
     if (c.aqui) l.desde = Date.now();
     else if (Date.now() - l.desde > RECARREGAR_SEM_DETECTAR_MS) { l.view.webContents.reload(); l.desde = Date.now(); }
@@ -464,6 +508,11 @@ ipcMain.on('lives-ligar', (_e, ligar) => {
   vigiarLives();
 });
 ipcMain.on('lives-pedir', () => enviarLives());
+ipcMain.on('lives-so-chat', (_e, soChat) => {
+  config.livesSoChat = !!soChat;
+  salvarConfig();
+  vigiarLives(); // reabre as lives no modo novo
+});
 ipcMain.on('lives-max', (_e, n) => {
   config.maxLives = Number(n);
   salvarConfig();
@@ -496,6 +545,7 @@ if (!app.requestSingleInstanceLock()) {
     salvarContas();
     for (const c of contas) await carregarExtensoes(c);
     contas.forEach(criarView);
+    criarBotaoVoltar(); // depois das contas: fica por cima delas
     setInterval(coletar, ATUALIZAR_MS);
     vigiarAtualizacoes();
     // Lives: primeira leitura depois que as contas carregarem e o primeiro cartão for lido

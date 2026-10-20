@@ -215,7 +215,13 @@ module.exports = {
   ],
   // Lives da Twitch com bônus: de onde vem a lista (a tela da Twitch do jogo) e o endereço de cada canal
   // padrão 4 lives abertas; o usuário escolhe até o limite (cada live ~250 MB de RAM e ~1,3% de CPU)
-  live: { lerCanais: livesOficiais, url: (login) => `https://www.twitch.tv/${login}`, padrao: 4, limite: 12 },
+  // urlChat: só o chat do canal (a página "chat em janela separada" da Twitch), bem mais leve; o jogo
+  // detecta pela presença no chat
+  live: {
+    lerCanais: livesOficiais, padrao: 4, limite: 12,
+    url: (login) => `https://www.twitch.tv/${login}`,
+    urlChat: (login) => `https://www.twitch.tv/popout/${login}/chat?popout=`,
+  },
   // Ao esconder a conta no Multidle
   aoEsconder: voltarEconomia,
   // Botões no cartão que acionam o próprio jogo (funcionam com a conta escondida)
