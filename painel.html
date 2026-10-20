@@ -87,6 +87,10 @@ main{flex:1;min-height:0;padding:8px}
 
 .apoiar{background:none;color:#ff7bb0;border:1px solid #4a3550;margin-right:6px}
 .selo.twitch b{color:#b48cff}
+.bonus{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.bonus .rot{color:#a98bb3;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-right:2px}
+.bonus .chip{font-size:11px;padding:1px 7px}
+.bonus .chip b{color:#6ee08a}
 #modal.depot{width:min(760px,94%)}
 table.depot{width:100%;border-collapse:collapse;font-size:13px}
 table.depot th{color:#c9a8d4;font-size:11px;text-transform:uppercase;text-align:left;padding:4px 6px;border-bottom:1px solid #4a3550}
@@ -136,7 +140,7 @@ a{color:#b48cff}
 <div id="fundo" hidden><div id="modal"><div id="modal-cab"><span id="modal-titulo"></span><button id="modal-fechar" title="Fechar">&#x2715;</button></div><div id="modal-corpo"></div></div></div>
 <script>
 // Cartão que cada módulo de jogo devolve (jogos/*.js, função montar):
-// { nome, subtitulo, tempo, estado?: {texto, nivel: ok|alerta, dica, extra}, alerta, dicaSemKpis?, selos: [{rot, v, cor}], kpis: [{rot, v, h, sub, cor}],
+// { nome, subtitulo, tempo, estado?: {texto, nivel: ok|alerta, dica, extra}, alerta, dicaSemKpis?, bonus?: [{rot, v}], selos: [{rot, v, cor}], kpis: [{rot, v, h, sub, cor}],
 //   blocos: [{titulo, largo?, vazio?, etiqueta?: {rot, n}, itens?: [{ico, n, nome, destaque?, apagado?}],
 //             linhas?: [{esq, meio?, dir, destaque?}]}], pronto, ferramenta }
 // Apoio (opcional): troque `pix` pela chave do projeto (de preferência aleatória)
@@ -204,8 +208,11 @@ function detalhes(c) {
   const kpis = c.kpis?.length
     ? `<div class="kpis">${c.kpis.map(kpi).join('')}</div>`
     : c.dicaSemKpis ? `<div class="bloco vazio">${esc(c.dicaSemKpis)}</div>` : '';
+  // Bônus valendo agora (VIP, Guild, Twitch, Kick...) com o tempo restante
+  const bonus = c.bonus?.length
+    ? `<div class="bonus"><span class="rot">Bônus</span>${c.bonus.map((b) => `<span class="chip">${esc(b.rot)} <b>${esc(b.v)}</b></span>`).join('')}</div>` : '';
   return `<div class="linha-sub"><span class="sub-t">${esc(c.subtitulo)}</span><span class="selos">${selos}</span></div>`
-    + kpis
+    + bonus + kpis
     + `<div class="blocos" style="grid-template-columns:${colunas}">${blocos.map(bloco).join('')}</div>`;
 }
 

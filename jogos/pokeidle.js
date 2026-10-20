@@ -46,12 +46,30 @@ function extrair() {
   // HP do Pokémon em campo: o primeiro "atual / máximo" do cartão Em campo (o segundo é o XP)
   const hpTxt = [...(document.getElementById('ativo-card')?.querySelectorAll('*') ?? [])]
     .map((e) => (e.children.length ? '' : e.textContent.trim())).find((s) => /^[\d.]+ \/ [\d.]+$/.test(s));
+  // Bônus ativos do painel do treinador (VIP, Passe, Guild, Raid...), com o tempo que o jogo mostra. Twitch
+  // e Kick sem bônus valendo ("Conectar", "vincular", "assista") ficam de fora.
+  const bonus = [...document.querySelectorAll('#tr-ativos .tr-ativo')]
+    .filter((b) => !b.matches('.twitch, .kick'))
+    .map((b) => ({ nome: [txt(b.querySelector('.selo-vip')), txt(b.querySelector('.tr-ativo-nome'))].filter(Boolean).join(' '), valor: txt(b.querySelector('.tr-ativo-valor')), tempo: txt(b.querySelector('.tr-ativo-tempo')) }))
+    .filter((b) => b.nome);
+  // Kick: com bônus trocados por pontos, o botão guarda até quando valem (data-kk-fim) e lista quais na dica
+  const kk = document.querySelector('.tr-ativo.kick');
+  // dica: "Bônus da Kick ativo: +15% XP. Clique para ver..." -> "+15% XP"
+  const kick = kk?.dataset.kkFim ? { fim: Number(kk.dataset.kkFim), lista: (kk.title || '').replace(/^[^:]*:\s*/, '').split('. ')[0].replace(/\.$/, '') } : null;
   // Bônus da Twitch no painel do treinador: "tw-conectar" (não vinculada) ou "tw-ativo" (bônus valendo)
   const tw = document.querySelector('.tr-ativo.twitch');
   const twitch = tw ? { vinculada: !tw.classList.contains('tw-conectar'), ativo: tw.classList.contains('tw-ativo'), valor: txt(tw.querySelector('.tr-ativo-valor')) } : null;
   let hunt = null;
   try { hunt = JSON.parse(localStorage.getItem('sessao-hunt:' + nick.toLowerCase())); } catch {}
-  return { texto: document.body ? document.body.innerText : '', nick, kpis, time, mochila, moedas, achados, lugar, hunt, caca, tempo, hpTxt: hpTxt ?? '', twitch };
+  return { texto: document.body ? document.body.innerText : '', nick, kpis, time, mochila, moedas, achados, lugar, hunt, caca, tempo, hpTxt: hpTxt ?? '', twitch, bonus, kick, agora: Date.now() };
+}
+
+// "faltam N ms" -> "1h 20m" / "45m" / "2d 3h"
+function duracao(ms) {
+  const m = Math.max(0, Math.round(ms / 60000));
+  if (m >= 1440) return `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`;
+  if (m >= 60) return `${Math.floor(m / 60)}h ${m % 60}m`;
+  return `${m}m`;
 }
 
 // Roda na página do jogo: lê as lives oficiais da tela da Twitch do jogo (abre e fecha a tela).
@@ -227,7 +245,7 @@ function porcentagem(hpTxt) {
 }
 
 // Dados da página -> cartão genérico do painel
-function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moedas = {}, achados = [], lugar = '', hunt = null, caca = null, tempo: relogio = '', hpTxt = '', twitch = null } = {}) {
+function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moedas = {}, achados = [], lugar = '', hunt = null, caca = null, tempo: relogio = '', hpTxt = '', twitch = null, bonus = [], kick = null, agora = Date.now() } = {}) {
   const { hunt: nomeHunt, tempo: tempoTexto } = parse(texto);
   const tempo = relogio || tempoTexto;
   const hp = hpTxt ? porcentagem(hpTxt) : null;
@@ -243,11 +261,18 @@ function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moe
     estado: caca ? { texto: cacando ? 'Caçando' : 'Parado', nivel: cacando ? 'ok' : 'alerta', dica: caca.texto, extra: hp != null ? `HP ${hp}%` : '' } : null,
     alerta: !!caca && !cacando,
     selos: [
-      ...(twitch?.vinculada ? [{ rot: 'Twitch', v: twitch.ativo ? twitch.valor : 'não detectado', cor: twitch.ativo ? 'twitch' : 'neg' }] : []),
+      // ativo, a Twitch vai para a linha de bônus; aqui só o alerta de vinculada e não detectada
+      ...(twitch?.vinculada && !twitch.ativo ? [{ rot: 'Twitch', v: 'não detectado', cor: 'neg' }] : []),
       ...[['Ouro', moedas.ouro, 'ouro'], ['Diamantes', moedas.diamantes, 'diam'], ['Gemas', moedas.gemas, 'gema']]
         .filter(([, v]) => v).map(([rot, v, cor]) => ({ rot, v, cor })),
     ],
     twitchVinculada: !!twitch?.vinculada, // conta de onde o Multidle lê as lives oficiais
+    // Linha "Bônus ativos": o que o painel do treinador mostra valendo, mais Twitch e Kick quando ativos
+    bonus: [
+      ...bonus.map((b) => ({ rot: b.nome, v: [b.valor, b.tempo].filter(Boolean).join(' · ') })),
+      ...(twitch?.ativo ? [{ rot: 'Twitch', v: twitch.valor }] : []),
+      ...(kick && kick.fim > agora ? [{ rot: 'Kick', v: `${kick.lista || 'bônus ativo'} · ${duracao(kick.fim - agora)}` }] : []),
+    ],
     kpis: [kpi('XP treinador', kpis.xpTreinador), kpi('Lucro líquido', kpis.lucro, kpis.lucro ? sinal(kpis.lucro.v) : ''),
       kpi('Abates', kpis.abates), kpi('Capturas', kpis.capturas)].filter(Boolean),
     blocos: [
@@ -358,8 +383,12 @@ if (require.main === module) {
   assert.strictEqual(cacandoSemEco.alerta, false);
   assert.strictEqual(montar({ nick: 'X' }).estado, null); // fora do modo economia: sem selo
   const tw = (t) => montar({ nick: 'X', twitch: t }).selos.find((s) => s.rot === 'Twitch');
-  assert.deepStrictEqual(tw({ vinculada: true, ativo: true, valor: '+22,5% XP' }), { rot: 'Twitch', v: '+22,5% XP', cor: 'twitch' });
+  assert.strictEqual(tw({ vinculada: true, ativo: true, valor: '+22,5% XP' }), undefined); // ativo: vai para a linha de bônus
   assert.deepStrictEqual(tw({ vinculada: true, ativo: false, valor: 'assista' }), { rot: 'Twitch', v: 'não detectado', cor: 'neg' });
   assert.strictEqual(tw({ vinculada: false, ativo: false, valor: '+15% XP' }), undefined);
+  const b = montar({ nick: 'X', agora: 0, bonus: [{ nome: '+50% XP', valor: '', tempo: '20 dias' }, { nome: 'Boost Guild', valor: '+10% XP', tempo: '10d' }],
+    twitch: { vinculada: true, ativo: true, valor: '+20% XP' }, kick: { fim: 80 * 60000, lista: 'XP +15%' } }).bonus;
+  assert.deepStrictEqual(b.map((x) => `${x.rot}: ${x.v}`), ['+50% XP: 20 dias', 'Boost Guild: +10% XP · 10d', 'Twitch: +20% XP', 'Kick: XP +15% · 1h 20m']);
+  assert.strictEqual(montar({ nick: 'X', agora: 100, kick: { fim: 50, lista: 'XP' } }).bonus.length, 0); // Kick vencido não aparece
   console.log('ok');
 }

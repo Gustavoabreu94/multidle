@@ -15,6 +15,7 @@ Hoje suporta o **[PokeIdle](https://pokeidle.io)**. Outros jogos idle podem ser 
 - **Clique no cartão** e o jogo aparece dentro dele; `⤢` ocupa o programa todo; **Mostrar todas** / **Esconder todas**.
 - **Leve:** conta escondida sai da tela e para de ser desenhada. Com 4 contas escondidas, ~1,5% de CPU e ~1,2 GB de RAM — e o jogo continua rodando.
 - **Simulador de hunt** (PokeIdle): o botão **Simular** do cartão leva a ficha do Pokémon mais forte para o [simulador do Lotuz](https://pokedex.lotuz.tech/hunt-sim) e já roda a simulação, numa janela por cima do painel.
+- **Bônus ativos** no cartão: o que está valendo na conta (VIP, Boost da Guild e outros) com o tempo restante, como no painel do treinador do jogo.
 - **Reset** no cartão zera a sessão da conta (como o RESET do jogo), mesmo com ela escondida.
 - **Depot** no cartão: lista os Pokémon do Depot do melhor para o pior (potência, IV, qualidade, nota e shiny), com **→ Coleção** para tirar da venda os que você quer guardar e **Vender o resto**, que mostra o que a confirmação do próprio jogo diz (quantos, quanto rende e se vai algum shiny/P5) e só vende se você confirmar. A Coleção fica de fora, como no jogo.
 - Com o Multidle aberto, o Windows **não suspende o PC** (na bateria ele suspendia após alguns minutos e as contas paravam). A tela ainda pode apagar.
