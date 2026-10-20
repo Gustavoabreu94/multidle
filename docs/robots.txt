@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://gustavoabreu94.github.io/multidle/sitemap.xml
