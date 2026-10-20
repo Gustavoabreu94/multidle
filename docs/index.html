@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multidle — várias contas do PokeIdle numa janela só</title>
+<meta name="description" content="Multidle: programa gratuito e open source para Windows que abre várias contas do PokeIdle numa janela só, com um painel de XP, lucro, abates, mochila e equipe de cada conta. Não oficial.">
+<link rel="canonical" href="https://gustavoabreu94.github.io/multidle/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Multidle — várias contas do PokeIdle numa janela só">
+<meta property="og:description" content="Gratuito e open source: várias contas do PokeIdle numa janela, com painel de resumo de cada conta.">
+<meta property="og:image" content="https://gustavoabreu94.github.io/multidle/painel.png">
+<meta property="og:url" content="https://gustavoabreu94.github.io/multidle/">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Multidle","operatingSystem":"Windows 10, Windows 11","applicationCategory":"GameApplication","description":"Várias contas de jogos idle (PokeIdle) numa janela só, com painel de resumo por conta.","offers":{"@type":"Offer","price":"0","priceCurrency":"BRL"},"downloadUrl":"https://github.com/Gustavoabreu94/multidle/releases/latest","license":"https://opensource.org/licenses/MIT"}
+</script>
+<style>
+:root{--fundo:#1f1523;--fundo2:#160f19;--caixa:#2f2134;--borda:#4a3550;--texto:#f3e9f5;--fraco:#a98bb3;--lilas:#c9a8d4;--roxo:#9b4dca;--roxo2:#b06ee0;--ouro:#ffd166;--rosa:#ff7bb0}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--fundo);color:var(--texto);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:#c7a4ff}
+.largura{max-width:1080px;margin:0 auto;padding:0 20px}
+header{background:var(--fundo2);border-bottom:1px solid var(--borda)}
+nav{display:flex;align-items:center;gap:20px;height:56px}
+nav .marca{font-weight:800;font-size:18px;color:var(--lilas);text-decoration:none;flex:1}
+nav a:not(.marca){color:var(--fraco);text-decoration:none;font-size:14px}
+nav a:not(.marca):hover{color:var(--texto)}
+.heroi{text-align:center;padding:64px 0 32px}
+.heroi h1{font-size:clamp(32px,6vw,52px);line-height:1.1;margin:0 0 16px}
+.heroi h1 span{color:var(--roxo2)}
+.heroi p{color:var(--lilas);font-size:clamp(16px,2.4vw,19px);max-width:680px;margin:0 auto 28px}
+.botoes{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.botao{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:10px;font-weight:700;text-decoration:none;font-size:16px}
+.botao.principal{background:var(--roxo);color:#fff}
+.botao.principal:hover{background:var(--roxo2)}
+.botao.secundario{border:1px solid var(--borda);color:var(--texto)}
+.botao.secundario:hover{background:var(--caixa)}
+.nota{color:var(--fraco);font-size:13px;margin-top:12px}
+.print{margin:40px auto 0;max-width:1000px}
+.print img{width:100%;height:auto;display:block;border-radius:12px;border:1px solid var(--borda);box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.print figcaption{color:var(--fraco);font-size:13px;text-align:center;margin-top:10px}
+section{padding:56px 0}
+h2{font-size:28px;margin:0 0 24px}
+.grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.cartao{background:var(--caixa);border:1px solid var(--borda);border-radius:12px;padding:18px}
+.cartao h3{margin:0 0 6px;font-size:17px}
+.cartao p{margin:0;color:var(--lilas);font-size:15px}
+.aviso{background:#2a1a1f;border:1px solid #7a3a48;border-radius:12px;padding:20px 22px}
+.aviso h2{color:#ffb3bf;font-size:22px;margin-bottom:12px}
+.aviso ul{margin:0;padding-left:20px}
+.aviso li{margin:6px 0}
+ol.passos{counter-reset:p;list-style:none;padding:0;margin:0;display:grid;gap:12px}
+ol.passos li{counter-increment:p;background:var(--caixa);border:1px solid var(--borda);border-radius:12px;padding:14px 18px 14px 58px;position:relative}
+ol.passos li::before{content:counter(p);position:absolute;left:16px;top:13px;width:28px;height:28px;border-radius:50%;background:var(--roxo);color:#fff;font-weight:800;display:grid;place-items:center;font-size:14px}
+.apoio{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center;background:var(--caixa);border:1px solid var(--borda);border-radius:12px;padding:22px}
+.apoio img{width:170px;height:170px;border-radius:8px;display:block}
+.chave{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
+.chave code{background:var(--fundo2);border:1px solid var(--borda);border-radius:8px;padding:6px 10px;font-size:14px;word-break:break-all}
+.chave button{font:inherit;font-size:14px;background:var(--roxo);color:#fff;border:0;border-radius:8px;padding:6px 12px;cursor:pointer}
+footer{border-top:1px solid var(--borda);background:var(--fundo2);color:var(--fraco);font-size:14px;padding:28px 0}
+footer p{margin:6px 0}
+@media (max-width:640px){
+  nav a:not(.marca){display:none}
+  .apoio{grid-template-columns:1fr;text-align:center}
+  .apoio img{margin:0 auto}
+  .chave{justify-content:center}
+}
+</style>
+</head>
+<body>
+<header><nav class="largura">
+  <a class="marca" href="#">Multidle</a>
+  <a href="#recursos">Recursos</a>
+  <a href="#regras">Regras</a>
+  <a href="#instalar">Instalar</a>
+  <a href="#apoie">Apoie</a>
+  <a href="https://github.com/Gustavoabreu94/multidle">GitHub</a>
+</nav></header>
+
+<main>
+  <div class="heroi largura">
+    <h1>Várias contas do <span>PokeIdle</span><br>numa janela só</h1>
+    <p>Um programa leve para Windows que abre todas as suas contas lado a lado, com um painel que mostra XP, lucro, abates, mochila e equipe de cada uma — sem uma pilha de abas do navegador.</p>
+    <div class="botoes">
+      <a class="botao principal" href="https://github.com/Gustavoabreu94/multidle/releases/latest">&#x2B07; Baixar para Windows</a>
+      <a class="botao secundario" href="https://github.com/Gustavoabreu94/multidle">Ver o código no GitHub</a>
+    </div>
+    <div class="nota">Gratuito e open source (MIT) · Windows 10/11 · não oficial</div>
+    <figure class="print">
+      <img src="painel.png" width="1280" height="900" alt="Painel do Multidle com quatro contas do PokeIdle: XP, lucro líquido, abates, capturas, mochila, achados e equipe de cada conta">
+      <figcaption>O painel com quatro contas (dados de exemplo)</figcaption>
+    </figure>
+  </div>
+
+  <section id="recursos"><div class="largura">
+    <h2>O que ele faz</h2>
+    <div class="grade">
+      <div class="cartao"><h3>Uma janela, várias contas</h3><p>Cada conta tem o próprio login, isolado das outras. Clique no cartão e o jogo aparece dentro dele.</p></div>
+      <div class="cartao"><h3>Painel de cada conta</h3><p>XP e lucro por hora, abates, capturas, ouro, diamantes, gemas, bolas e poções restantes, achados da hunt e o Pokémon mais forte.</p></div>
+      <div class="cartao"><h3>Leve de verdade</h3><p>Conta escondida para de ser desenhada: com 4 contas escondidas, cerca de 1,5% de CPU — e o jogo continua caçando.</p></div>
+      <div class="cartao"><h3>Simulador de hunt</h3><p>O botão <b>Simular</b> leva a ficha do seu Pokémon mais forte para o simulador do Lotuz e mostra as melhores hunts.</p></div>
+      <div class="cartao"><h3>Extensão /hunt</h3><p>Se você usa a extensão <b>/hunt for PokeIdle</b> no Chrome ou no Edge, ela funciona dentro do Multidle também.</p></div>
+      <div class="cartao"><h3>Não joga por você</h3><p>O Multidle só mostra o site do jogo e lê o que já está na tela. Ele não envia comandos ao servidor do jogo.</p></div>
+    </div>
+  </div></section>
+
+  <section id="regras"><div class="largura">
+    <div class="aviso">
+      <h2>&#x26A0; Regras do PokeIdle — leia antes de usar</h2>
+      <ul>
+        <li><b>No máximo 4 contas por pessoa.</b> Mais que isso leva ao banimento de <b>todas</b> as contas. O Multidle não deixa adicionar a 5ª.</li>
+        <li><b>A conta é pessoal:</b> emprestar, vender, comprar ou dividir conta é proibido.</li>
+        <li><b>Automações são permitidas</b> se seguirem as mesmas regras de quem joga na mão: sem explorar falhas, sem burlar limites e sem sobrecarregar o servidor.</li>
+      </ul>
+      <p style="margin:12px 0 0">Resumo dos <a href="https://pokeidle.io/terms">Termos do PokeIdle</a> (versão de 12/10/2026). As regras podem mudar — confira sempre os termos atuais. Usar o Multidle é por sua conta e risco.</p>
+    </div>
+  </div></section>
+
+  <section id="instalar"><div class="largura">
+    <h2>Como instalar</h2>
+    <ol class="passos">
+      <li>Baixe o <b>Multidle Setup</b> mais recente em <a href="https://github.com/Gustavoabreu94/multidle/releases/latest">Releases</a> (seção <b>Assets</b>).</li>
+      <li>Execute o arquivo. Se o Windows mostrar <b>“O Windows protegeu o computador”</b>, clique em <b>Mais informações</b> → <b>Executar assim mesmo</b> (o instalador não é assinado digitalmente).</li>
+      <li>Clique em <b>+ Nova conta</b>: o Chrome ou o Edge abre para você entrar no jogo. Quando o login termina, a conta aparece no painel sozinha.</li>
+      <li>Para atualizar, feche o Multidle e instale a versão nova por cima — as contas continuam logadas.</li>
+    </ol>
+    <p class="nota">É preciso ter o Google Chrome ou o Microsoft Edge (usados só no login, porque o Google bloqueia login dentro de aplicativos). Seus logins ficam só no seu computador.</p>
+  </div></section>
+
+  <section id="apoie"><div class="largura">
+    <h2>Apoie o projeto</h2>
+    <div class="apoio">
+      <img src="pix.svg" width="170" height="170" alt="QR Code Pix para doação ao Multidle">
+      <div>
+        <p style="margin:0">O Multidle é gratuito. Se ele te ajuda e você quiser apoiar, qualquer valor ajuda a manter o projeto — é opcional e não libera nada a mais.</p>
+        <div class="chave"><b>Pix:</b> <code id="pix">340355d9-a9f1-4b9c-927d-190c4cbe1a12</code><button id="copiar" type="button">Copiar chave</button></div>
+        <p style="margin:0;color:var(--fraco);font-size:14px">Também pelo <a href="https://github.com/sponsors/Gustavoabreu94">GitHub Sponsors</a>. E apoie quem faz as ferramentas que o Multidle usa: o <a href="https://pokedex.lotuz.tech/hunt-sim">simulador de hunt (Lotuzx)</a> e a <a href="https://livepix.gg/crispim">extensão /hunt (Liang)</a>.</p>
+      </div>
+    </div>
+  </div></section>
+</main>
+
+<footer><div class="largura">
+  <p><b>Multidle</b> é um projeto <b>não oficial</b>, feito por um jogador, sem ligação com o PokeIdle nem com seus desenvolvedores.</p>
+  <p>PokeIdle e as imagens do jogo pertencem aos seus donos. Pokémon é marca de Nintendo, Game Freak, Creatures e The Pokémon Company.</p>
+  <p><a href="https://github.com/Gustavoabreu94/multidle">Código-fonte</a> · <a href="https://github.com/Gustavoabreu94/multidle/issues">Sugestões e problemas</a> · Licença MIT</p>
+</div></footer>
+
+<script>
+document.getElementById('copiar').onclick = async (e) => {
+  try { await navigator.clipboard.writeText(document.getElementById('pix').textContent); e.target.textContent = 'Copiada!'; }
+  catch { e.target.textContent = 'Selecione e copie'; }
+};
+</script>
+</body>
+</html>

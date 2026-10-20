@@ -1,5 +1,7 @@
 # Multidle
 
+**Site: https://gustavoabreu94.github.io/multidle/**
+
 Várias contas de jogos idle numa janela só, com um painel que mostra o resumo de cada conta — sem precisar deixar uma pilha de abas do navegador abertas.
 
 > Projeto **não oficial**, feito por um jogador. Não tem ligação com os jogos suportados nem com seus desenvolvedores.
