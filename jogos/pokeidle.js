@@ -46,9 +46,35 @@ function extrair() {
   // HP do Pokémon em campo: o primeiro "atual / máximo" do cartão Em campo (o segundo é o XP)
   const hpTxt = [...(document.getElementById('ativo-card')?.querySelectorAll('*') ?? [])]
     .map((e) => (e.children.length ? '' : e.textContent.trim())).find((s) => /^[\d.]+ \/ [\d.]+$/.test(s));
+  // Bônus da Twitch no painel do treinador: "tw-conectar" (não vinculada) ou "tw-ativo" (bônus valendo)
+  const tw = document.querySelector('.tr-ativo.twitch');
+  const twitch = tw ? { vinculada: !tw.classList.contains('tw-conectar'), ativo: tw.classList.contains('tw-ativo'), valor: txt(tw.querySelector('.tr-ativo-valor')) } : null;
   let hunt = null;
   try { hunt = JSON.parse(localStorage.getItem('sessao-hunt:' + nick.toLowerCase())); } catch {}
-  return { texto: document.body ? document.body.innerText : '', nick, kpis, time, mochila, moedas, achados, lugar, hunt, caca, tempo, hpTxt: hpTxt ?? '' };
+  return { texto: document.body ? document.body.innerText : '', nick, kpis, time, mochila, moedas, achados, lugar, hunt, caca, tempo, hpTxt: hpTxt ?? '', twitch };
+}
+
+// Roda na página do jogo: lê as lives oficiais da tela da Twitch do jogo (abre e fecha a tela).
+// "aqui" = o servidor do jogo já te achou no chat daquela live (ele confere uma vez por minuto).
+// Se outra janela do jogo estiver aberta, não mexe e devolve null (tenta na próxima).
+async function livesOficiais() {
+  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+  const botao = document.querySelector('.tr-ativo.twitch');
+  const modal = document.getElementById('modal');
+  if (!botao || !modal) return null;
+  const abri = modal.classList.contains('hidden');
+  if (!abri && !document.getElementById('tw-corpo')) return null;
+  if (abri) botao.click();
+  for (let i = 0; i < 30 && !document.querySelector('#tw-corpo .tw-canal'); i++) await espera(100);
+  const canais = [...document.querySelectorAll('#tw-corpo .tw-canal')].map((a) => ({
+    login: (a.getAttribute('href') ?? '').split('/').pop().toLowerCase(),
+    nome: a.querySelector('.tw-canal-nome')?.textContent.trim() ?? '',
+    aoVivo: a.classList.contains('ao-vivo'),
+    bonus: a.classList.contains('com-bonus'),
+    aqui: a.classList.contains('tw-aqui'),
+  })).filter((c) => /^\w+$/.test(c.login));
+  if (abri) document.getElementById('modal-fechar')?.click();
+  return canais;
 }
 
 // Roda na página do jogo: abre a ficha do Pokémon mais forte e aciona o "Copiar p/ ChatGPT" do jogo,
@@ -74,6 +100,16 @@ async function copiarFicha() {
     if (!jaAberta) document.getElementById('ficha-fechar')?.click();
   }
   return texto;
+}
+
+// Roda na página do jogo quando a conta é escondida: quem abriu a conta e foi para a tela de combate
+// sai do Modo Economia, e escondida assim o cartão fica sem números (testado). Religa o modo pelo botão
+// do jogo, só se estiver na hunt e com o modo desligado.
+function voltarEconomia() {
+  const naHunt = /hunt-ativa/.test(document.getElementById('palco')?.className ?? '');
+  if (!naHunt || localStorage.getItem('cfg-economia') === '1') return false;
+  document.getElementById('hunt-eco')?.click();
+  return true;
 }
 
 // Roda na página do jogo: o RESET da sessão (zera só os contadores locais: XP, lucro, abates...)
@@ -114,7 +150,7 @@ function porcentagem(hpTxt) {
 }
 
 // Dados da página -> cartão genérico do painel
-function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moedas = {}, achados = [], lugar = '', hunt = null, caca = null, tempo: relogio = '', hpTxt = '' } = {}) {
+function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moedas = {}, achados = [], lugar = '', hunt = null, caca = null, tempo: relogio = '', hpTxt = '', twitch = null } = {}) {
   const { hunt: nomeHunt, tempo: tempoTexto } = parse(texto);
   const tempo = relogio || tempoTexto;
   const hp = hpTxt ? porcentagem(hpTxt) : null;
@@ -129,8 +165,12 @@ function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moe
     // Selo do estado e a vida do Pokémon em campo
     estado: caca ? { texto: cacando ? 'Caçando' : 'Parado', nivel: cacando ? 'ok' : 'alerta', dica: caca.texto, extra: hp != null ? `HP ${hp}%` : '' } : null,
     alerta: !!caca && !cacando,
-    selos: [['Ouro', moedas.ouro, 'ouro'], ['Diamantes', moedas.diamantes, 'diam'], ['Gemas', moedas.gemas, 'gema']]
-      .filter(([, v]) => v).map(([rot, v, cor]) => ({ rot, v, cor })),
+    selos: [
+      ...(twitch?.vinculada ? [{ rot: 'Twitch', v: twitch.ativo ? twitch.valor : 'não detectado', cor: twitch.ativo ? 'twitch' : 'neg' }] : []),
+      ...[['Ouro', moedas.ouro, 'ouro'], ['Diamantes', moedas.diamantes, 'diam'], ['Gemas', moedas.gemas, 'gema']]
+        .filter(([, v]) => v).map(([rot, v, cor]) => ({ rot, v, cor })),
+    ],
+    twitchVinculada: !!twitch?.vinculada, // conta de onde o Multidle lê as lives oficiais
     kpis: [kpi('XP treinador', kpis.xpTreinador), kpi('Lucro líquido', kpis.lucro, kpis.lucro ? sinal(kpis.lucro.v) : ''),
       kpi('Abates', kpis.abates), kpi('Capturas', kpis.capturas)].filter(Boolean),
     blocos: [
@@ -173,6 +213,11 @@ module.exports = {
     { nome: 'Simulador de hunt (Lotuzx)', url: 'https://pokedex.lotuz.tech/hunt-sim', obs: 'o simulador do botão Simular' },
     { nome: 'Extensão /hunt (Liang)', url: 'https://livepix.gg/crispim', obs: 'doação para o autor da extensão' },
   ],
+  // Lives da Twitch com bônus: de onde vem a lista (a tela da Twitch do jogo) e o endereço de cada canal
+  // padrão 4 lives abertas; o usuário escolhe até o limite (cada live ~250 MB de RAM e ~1,3% de CPU)
+  live: { lerCanais: livesOficiais, url: (login) => `https://www.twitch.tv/${login}`, padrao: 4, limite: 12 },
+  // Ao esconder a conta no Multidle
+  aoEsconder: voltarEconomia,
   // Botões no cartão que acionam o próprio jogo (funcionam com a conta escondida)
   acoes: [{ id: 'reset', rotulo: 'Reset', dica: 'Zera a sessão desta conta (XP, lucro, abates...), como o RESET do jogo',
     confirmar: 'Zerar a sessão desta conta? XP, lucro, abates, capturas e achados da sessão voltam a 0 (a conta e os itens não mudam).',
@@ -225,5 +270,9 @@ if (require.main === module) {
   assert.strictEqual(cacandoSemEco.estado.texto, 'Caçando');
   assert.strictEqual(cacandoSemEco.alerta, false);
   assert.strictEqual(montar({ nick: 'X' }).estado, null); // fora do modo economia: sem selo
+  const tw = (t) => montar({ nick: 'X', twitch: t }).selos.find((s) => s.rot === 'Twitch');
+  assert.deepStrictEqual(tw({ vinculada: true, ativo: true, valor: '+22,5% XP' }), { rot: 'Twitch', v: '+22,5% XP', cor: 'twitch' });
+  assert.deepStrictEqual(tw({ vinculada: true, ativo: false, valor: 'assista' }), { rot: 'Twitch', v: 'não detectado', cor: 'neg' });
+  assert.strictEqual(tw({ vinculada: false, ativo: false, valor: '+15% XP' }), undefined);
   console.log('ok');
 }

@@ -21,6 +21,16 @@ Hoje suporta o **[PokeIdle](https://pokeidle.io)**. Outros jogos idle podem ser 
 - Links que saem do jogo (conectar Twitch/Kick) abrem numa janela à parte, com o login da mesma conta.
 - **Extensões do navegador** que você já usa no jogo funcionam dentro do Multidle (veja abaixo).
 
+## Lives da Twitch (bônus de XP)
+
+O PokeIdle dá **+15% de XP** para quem assiste a uma live oficial na Twitch, e **+2,5% por live oficial a mais aberta ao mesmo tempo**. O servidor do jogo confere uma vez por minuto se a sua conta da Twitch (vinculada no jogo) está no chat da live.
+
+Em **📺 Lives**, ligue **Manter as lives abertas**: o Multidle consulta no jogo quais lives oficiais com bônus estão no ar, abre até o número que você escolher (sem som, em 160p), fecha as que terminam e recarrega uma live se o jogo parar de te detectar nela. **Vem desligado.**
+
+- **Login:** a Twitch bloqueia login dentro de apps. Clique em **Entrar na Twitch**, faça login no Chrome/Edge que abrir e **feche a janela** — o login vem para o Multidle.
+- **Custo:** cada live usa cerca de **250 MB de RAM e 1,3% de CPU** (medido com 4 lives: +1 GB e +5% de CPU). Escolha quantas lives manter conforme o seu PC.
+- Só ganha o bônus a conta do jogo vinculada à sua Twitch (cada Twitch vincula uma conta só).
+
 ## Extensões
 
 O Multidle carrega nas contas, automaticamente, extensões de jogo que **você já tenha instalado no Google Chrome ou no Microsoft Edge** — ele usa a cópia do seu navegador, não traz nenhuma junto. Sem a extensão instalada, o resto do Multidle funciona normalmente.

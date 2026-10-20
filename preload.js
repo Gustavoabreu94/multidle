@@ -17,4 +17,9 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('versao-baixada').then((v) => v && fn(v)); // já baixada antes do painel abrir
   },
   instalarAtualizacao: () => ipcRenderer.send('instalar-atualizacao'),
+  aoLives: (fn) => ipcRenderer.on('lives', (_e, l) => fn(l)),
+  livesLigar: (ligar) => ipcRenderer.send('lives-ligar', ligar),
+  livesPedir: () => ipcRenderer.send('lives-pedir'),
+  livesEntrar: () => ipcRenderer.send('lives-entrar'),
+  livesMax: (n) => ipcRenderer.send('lives-max', n),
 });

@@ -194,6 +194,8 @@ function criarView({ id, jogo: jogoId }) {
   views.set(id, v);
 }
 
+const ultimosCartoes = new Map(); // id da conta -> último cartão lido (as lives usam para achar a conta vinculada)
+
 async function coletar() {
   if (!win || win.isDestroyed()) return;
   const lista = await Promise.all(contas.map(async ({ id, jogo: jogoId }) => {
@@ -205,6 +207,7 @@ async function coletar() {
       return base;
     }
   }));
+  for (const c of lista) ultimosCartoes.set(c.conta, c);
   if (!win.isDestroyed()) win.webContents.send('dados', lista);
 }
 
@@ -221,6 +224,8 @@ ipcMain.on('layout', (_e, mapa) => {
       if (!naJanela.has(id)) { win.contentView.addChildView(v); naJanela.add(id); }
     } else if (naJanela.delete(id)) {
       win.contentView.removeChildView(v);
+      const aoEsconder = jogoDe(id)?.aoEsconder; // só contas (ferramentas e lives não têm jogo)
+      if (aoEsconder) v.webContents.executeJavaScript(`(${aoEsconder})()`).then((mudou) => mudou && setTimeout(coletar, 2000)).catch(() => {});
     }
   }
 });
@@ -316,6 +321,155 @@ ipcMain.handle('ferramenta', async (_e, jogoId, id) => {
   return true;
 });
 
+// ---------- Lives da Twitch ----------
+// Bônus de live: o servidor do jogo procura o jogador no CHAT da live oficial uma vez por minuto. As
+// lives ficam abertas aqui (twitch.tv de verdade, logada na conta do usuário, sem som, 160p); a cada
+// 2 min o Multidle lê no jogo quais lives com bônus estão no ar, abre/fecha conforme, e recarrega a
+// que está aberta há um tempo sem o jogo detectar o jogador nela (o caso de "caiu").
+const ARQ_CONFIG = path.join(DADOS, 'config.json');
+const config = fs.existsSync(ARQ_CONFIG) ? JSON.parse(fs.readFileSync(ARQ_CONFIG, 'utf8')) : {};
+const salvarConfig = () => fs.writeFileSync(ARQ_CONFIG, JSON.stringify(config));
+const LIVE = '__live:'; // prefixo da área de cada live no layout
+const VIGIAR_LIVES_MS = 2 * 60_000;
+const RECARREGAR_SEM_DETECTAR_MS = 5 * 60_000;
+const lives = new Map(); // login -> { view, nome, aqui, desde }
+let canaisOficiais = [];
+
+function abrirLive(login, nome, url) {
+  const v = new WebContentsView({ webPreferences: { partition: 'persist:twitch' } });
+  const wc = v.webContents;
+  wc.setAudioMuted(true);
+  wc.setWindowOpenHandler(({ url: externo }) => { shell.openExternal(externo); return { action: 'deny' }; });
+  wc.on('render-process-gone', () => wc.reload());
+  // Menor qualidade para gastar menos: a Twitch guarda a escolha no localStorage do site
+  wc.on('did-finish-load', async () => {
+    const mudou = await wc.executeJavaScript(`(() => { const q = JSON.stringify({ default: '160p30' });
+      if (localStorage.getItem('video-quality') === q) return false; localStorage.setItem('video-quality', q); return true; })()`).catch(() => false);
+    if (mudou) wc.reload();
+  });
+  wc.loadURL(url);
+  views.set(LIVE + login, v);
+  lives.set(login, { view: v, nome, aqui: false, desde: Date.now() });
+}
+
+function fecharLive(login) {
+  const l = lives.get(login);
+  if (!l) return;
+  if (naJanela.delete(LIVE + login)) win.contentView.removeChildView(l.view);
+  l.view.webContents.close();
+  views.delete(LIVE + login);
+  lives.delete(login);
+}
+
+const jogoComLive = () => Object.values(JOGOS).find((j) => j.live);
+const maxLives = (jogo) => Math.min(jogo.live.limite, Math.max(1, Number(config.maxLives) || jogo.live.padrao));
+
+const enviarLives = () => win?.webContents.send('lives', {
+  ligado: !!config.lives,
+  entrando: entrandoTwitch,
+  max: maxLives(jogoComLive()),
+  limite: jogoComLive().live.limite,
+  abertas: [...lives].map(([login, l]) => ({ login, nome: l.nome, aqui: l.aqui })),
+  semConta: !contas.some((c) => ultimosCartoes.get(c.id)?.twitchVinculada),
+});
+
+async function vigiarLives() {
+  if (!config.lives) return enviarLives();
+  const fonte = contas.find((c) => ultimosCartoes.get(c.id)?.twitchVinculada && JOGOS[c.jogo].live);
+  if (!fonte) return enviarLives();
+  const jogo = JOGOS[fonte.jogo];
+  const pagina = views.get(fonte.id).webContents;
+  pagina.setBackgroundThrottling(false); // a leitura espera a tela da Twitch do jogo abrir
+  const canais = await pagina.executeJavaScript(`(${jogo.live.lerCanais})()`).catch(() => null)
+    .finally(() => pagina.setBackgroundThrottling(true));
+  if (!canais) return enviarLives();
+  canaisOficiais = canais;
+  const queremos = canais.filter((c) => c.aoVivo && c.bonus).slice(0, maxLives(jogo));
+  for (const login of [...lives.keys()]) if (!queremos.some((c) => c.login === login)) fecharLive(login);
+  for (const c of queremos) {
+    const l = lives.get(c.login);
+    if (!l) { abrirLive(c.login, c.nome, jogo.live.url(c.login)); continue; }
+    l.aqui = c.aqui;
+    if (c.aqui) l.desde = Date.now();
+    else if (Date.now() - l.desde > RECARREGAR_SEM_DETECTAR_MS) { l.view.webContents.reload(); l.desde = Date.now(); }
+  }
+  enviarLives();
+}
+
+// A Twitch bloqueia login em app embutido ("navegador não suportado") e TAMBÉM num Chrome controlado
+// por depuração (testado). Então: 1) login num Chrome/Edge normal, sem controle nenhum, até o usuário
+// fechar a janela; 2) o mesmo perfil abre escondido, com depuração e sem carregar a Twitch, só para ler
+// os cookies salvos; 3) os cookies vão para as lives.
+// Abre o perfil do navegador escondido (sem carregar site nenhum) e devolve todos os cookies salvos.
+// Logo depois de o usuário fechar a janela o navegador ainda segura o perfil por uns segundos
+// (testado: a primeira leitura falhava), então tenta algumas vezes.
+async function lerCookiesDoPerfil(dir) {
+  const arqPorta = path.join(dir, 'DevToolsActivePort');
+  for (let tentativa = 0; tentativa < 8; tentativa++) {
+    fs.rmSync(arqPorta, { force: true });
+    const leitor = spawn(NAVEGADOR, ['--headless=new', `--user-data-dir=${dir}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
+    try {
+      for (let i = 0; i < 20 && !fs.existsSync(arqPorta); i++) await espera(250);
+      if (fs.existsSync(arqPorta)) {
+        const base = `http://127.0.0.1:${fs.readFileSync(arqPorta, 'utf8').split('\n')[0].trim()}`;
+        const { webSocketDebuggerUrl } = await (await fetch(`${base}/json/version`)).json();
+        const { cookies } = await rpc(webSocketDebuggerUrl, 'Storage.getCookies');
+        await rpc(webSocketDebuggerUrl, 'Browser.close').catch(() => {});
+        return cookies;
+      }
+    } catch {
+      // perfil ainda em uso ou navegador lento para subir: tenta de novo
+    } finally {
+      leitor.kill();
+    }
+    await espera(2000);
+  }
+  return [];
+}
+
+let entrandoTwitch = false;
+async function entrarTwitch() {
+  if (!NAVEGADOR || entrandoTwitch) return;
+  entrandoTwitch = true;
+  enviarLives();
+  const dir = path.join(DADOS, 'login', 'twitch');
+  try {
+    const login = spawn(NAVEGADOR, [`--user-data-dir=${dir}`, '--no-first-run', '--no-default-browser-check', '--new-window', 'https://www.twitch.tv/login'], { stdio: 'ignore' });
+    await new Promise((r) => login.once('exit', r)); // o usuário fechou a janela do navegador
+
+    const daTwitch = (await lerCookiesDoPerfil(dir)).filter((c) => /(^|\.)twitch\.tv$/.test(c.domain.replace(/^\./, '')));
+    if (!daTwitch.some((c) => c.name === 'auth-token')) return; // fechou sem terminar o login
+    const ses = session.fromPartition('persist:twitch');
+    for (const c of daTwitch) {
+      await ses.cookies.set({
+        url: `https://${c.domain.replace(/^\./, '')}${c.path}`, name: c.name, value: c.value, domain: c.domain, path: c.path,
+        secure: c.secure, httpOnly: c.httpOnly, sameSite: SAME_SITE[c.sameSite] ?? 'unspecified',
+        ...(c.expires > 0 ? { expirationDate: c.expires } : {}),
+      }).catch(() => {});
+    }
+    for (const l of lives.values()) l.view.webContents.reload();
+  } catch {
+    // navegador não abriu ou o perfil não pôde ser lido: o botão volta e dá para tentar de novo
+  } finally {
+    entrandoTwitch = false;
+    enviarLives();
+  }
+}
+ipcMain.on('lives-entrar', () => { entrarTwitch(); enviarLives(); });
+
+ipcMain.on('lives-ligar', (_e, ligar) => {
+  config.lives = !!ligar;
+  salvarConfig();
+  if (!config.lives) for (const login of [...lives.keys()]) fecharLive(login);
+  vigiarLives();
+});
+ipcMain.on('lives-pedir', () => enviarLives());
+ipcMain.on('lives-max', (_e, n) => {
+  config.maxLives = Number(n);
+  salvarConfig();
+  vigiarLives(); // abre ou fecha lives na hora para bater com o número novo
+});
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -344,5 +498,8 @@ if (!app.requestSingleInstanceLock()) {
     contas.forEach(criarView);
     setInterval(coletar, ATUALIZAR_MS);
     vigiarAtualizacoes();
+    // Lives: primeira leitura depois que as contas carregarem e o primeiro cartão for lido
+    setTimeout(vigiarLives, 30_000);
+    setInterval(vigiarLives, VIGIAR_LIVES_MS);
   });
 }

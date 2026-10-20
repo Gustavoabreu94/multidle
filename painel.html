@@ -86,6 +86,14 @@ main{flex:1;min-height:0;padding:8px}
 #modal.pequeno #modal-corpo{overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px;line-height:1.5}
 
 .apoiar{background:none;color:#ff7bb0;border:1px solid #4a3550;margin-right:6px}
+.selo.twitch b{color:#b48cff}
+#modal.lives #modal-corpo{display:flex;flex-direction:column;gap:8px;padding:8px}
+.lives-barra{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#c9a8d4;font-size:12px;flex:none}
+.lives-barra label{display:flex;align-items:center;gap:6px;font-weight:700;color:#f3e9f5;cursor:pointer}
+.lives-grade{flex:1;min-height:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));grid-auto-rows:1fr;gap:6px}
+.live{display:flex;flex-direction:column;border:1px solid #4a3550;border-radius:8px;overflow:hidden;min-height:0}
+.live-cab{display:flex;justify-content:space-between;gap:6px;padding:3px 8px;font-size:12px;font-weight:700;background:#1d1421;flex:none}
+.live-corpo{flex:1;min-height:0}
 .atualizar{background:#2e7d4f;margin-right:6px}
 .atualizar:hover{background:#3a9a62}
 .apoiar:hover{background:#2f2134}
@@ -109,6 +117,7 @@ a{color:#b48cff}
     <span id="novas" class="acoes" style="flex:none"></span>
   </span>
   <button id="atualizar" class="atualizar" hidden></button>
+  <button id="lives" class="apoiar" title="Lives da Twitch com bônus de XP">&#x1F4FA; Lives</button>
   <button id="apoiar" class="apoiar" title="Apoie o Multidle (opcional)">&#x2665; Apoiar</button>
   <span class="ctl">
     <button data-jan="min" title="Minimizar">&#x2013;</button>
@@ -151,7 +160,8 @@ function layout() {
   // Com o modal aberto só ele aparece: as contas abertas ficariam por cima dele. Elas continuam
   // marcadas como abertas e voltam do mesmo jeito ao fechar.
   $('#fundo').hidden = !modal;
-  if (modal) mapa[modal] = caixa($('#modal-corpo').getBoundingClientRect());
+  if (modal === 'lives') for (const el of document.querySelectorAll('.live-corpo')) mapa['__live:' + el.dataset.live] = caixa(el.getBoundingClientRect());
+  else if (modal) mapa[modal] = caixa($('#modal-corpo').getBoundingClientRect());
   else if (maximizada) mapa[maximizada] = caixa($('#area').getBoundingClientRect());
   else for (const c of abertas) {
     const el = document.querySelector(`.card[data-conta="${c}"] .corpo`);
@@ -269,7 +279,35 @@ function abrirModal(titulo, html, pequeno) {
   $('#modal-titulo').textContent = titulo;
   $('#modal-corpo').innerHTML = html;
   $('#modal').classList.toggle('pequeno', pequeno);
+  $('#modal').classList.remove('lives');
 }
+
+// Lives da Twitch: o programa abre/fecha/reconecta; aqui só mostra e liga/desliga
+let estadoLives = { ligado: false, abertas: [], semConta: false, max: 4, limite: 12 };
+function desenharLives() {
+  const l = estadoLives;
+  const aviso = l.semConta ? 'Nenhuma conta com a Twitch vinculada no jogo (botão "Conectar Twitch" do jogo).'
+    : !l.ligado ? 'Ligue para o Multidle manter abertas as lives oficiais com bônus e reconectar quando caírem.'
+    : !l.abertas.length ? 'Procurando lives oficiais no ar (o jogo é consultado a cada 2 minutos)...'
+    : 'Sem som e em 160p. Fechar esta janela não fecha as lives.';
+  const entrar = l.entrando
+    ? '<span class="pos">Faça login na Twitch no navegador que abriu e depois FECHE a janela dele: o login vem para cá.</span>'
+    : '<button id="lives-entrar" title="A Twitch bloqueia login dentro de apps: o login é feito no Chrome/Edge e copiado para cá">Entrar na Twitch</button>';
+  const quantas = `<label title="Cada live gasta ~250 MB de RAM e ~1,3% de CPU; cada uma a mais dá +2,5% de XP">Até `
+    + `<input type="number" id="lives-max" min="1" max="${esc(l.limite)}" value="${esc(l.max)}" style="width:52px"> lives</label>`;
+  abrirModal('Lives da Twitch', `<div class="lives-barra"><label><input type="checkbox" id="lives-ligado" ${l.ligado ? 'checked' : ''}> Manter as lives abertas</label>${quantas}${entrar}<span>${esc(aviso)}</span></div>`
+    + `<div class="lives-grade">${l.abertas.map((v) => `<div class="live"><div class="live-cab"><span>${esc(v.nome || v.login)}</span>`
+      + `<span class="${v.aqui ? 'pos' : 'fraco'}">${v.aqui ? '✓ o jogo te detectou' : 'aguardando o jogo detectar...'}</span></div>`
+      + `<div class="live-corpo" data-live="${esc(v.login)}"></div></div>`).join('')}</div>`, false);
+  $('#modal').classList.add('lives');
+  $('#lives-ligado').onchange = (e) => window.api.livesLigar(e.target.checked);
+  $('#lives-entrar')?.addEventListener('click', () => window.api.livesEntrar());
+  $('#lives-max').onchange = (e) => window.api.livesMax(Math.min(l.limite, Math.max(1, Number(e.target.value) || l.max)));
+  modal = 'lives';
+  layout();
+}
+window.api.aoLives((l) => { estadoLives = l; if (modal === 'lives') desenharLives(); });
+$('#lives').onclick = () => { desenharLives(); window.api.livesPedir(); };
 
 $('#apoiar').onclick = () => {
   const pix = APOIO.pix
