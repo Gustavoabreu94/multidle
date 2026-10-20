@@ -47,6 +47,30 @@ const NAVEGADOR = [
   [process.env.PROGRAMFILES, 'Microsoft/Edge/Application/msedge.exe'],
 ].filter(([base]) => base).map(([base, exe]) => path.join(base, exe)).find((p) => fs.existsSync(p));
 
+// Extensão instalada no Chrome/Edge do usuário (qualquer perfil): pasta da versão mais nova
+function acharExtensao(id) {
+  const versao = (v) => v.split(/[._]/).map(Number);
+  const maisNova = (a, b) => { const x = versao(a), y = versao(b); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0) ? a : b; return a; };
+  const achadas = [];
+  for (const base of ['Google/Chrome/User Data', 'Microsoft/Edge/User Data'].map((p) => path.join(process.env.LOCALAPPDATA ?? '', p))) {
+    if (!fs.existsSync(base)) continue;
+    for (const perfil of fs.readdirSync(base)) {
+      const dir = path.join(base, perfil, 'Extensions', id);
+      if (!fs.existsSync(dir)) continue;
+      for (const v of fs.readdirSync(dir)) if (fs.existsSync(path.join(dir, v, 'manifest.json'))) achadas.push(path.join(dir, v));
+    }
+  }
+  return achadas.reduce((a, b) => (a ? (maisNova(path.basename(a), path.basename(b)) === path.basename(a) ? a : b) : b), null);
+}
+
+// Precisa vir antes de a página carregar: os scripts da extensão rodam no início do documento
+async function carregarExtensoes({ id, jogo }) {
+  for (const ext of JOGOS[jogo].extensoes ?? []) {
+    const pasta = acharExtensao(ext.id);
+    if (pasta) await session.fromPartition(`persist:${id}`).loadExtension(pasta).catch(() => {});
+  }
+}
+
 let win;
 let contas = []; // [{ id: 'Conta1', jogo: 'pokeidle' }]
 const views = new Map(); // id da conta (ou da ferramenta) -> WebContentsView
@@ -204,15 +228,26 @@ ipcMain.on('janela', (_e, acao) => {
   if (acao === 'max') win.isMaximized() ? win.unmaximize() : win.maximize();
   if (acao === 'fechar') win.close();
 });
-ipcMain.handle('jogos', () => Object.values(JOGOS).map(({ id, nome, maxContas, avisoLimite, ferramenta }) => ({
-  id, nome, maxContas, avisoLimite, ferramenta: ferramenta && { rotulo: ferramenta.rotulo, titulo: ferramenta.titulo, dica: ferramenta.dica },
+ipcMain.handle('jogos', () => Object.values(JOGOS).map(({ id, nome, maxContas, avisoLimite, ferramenta, apoioTerceiros, acoes }) => ({
+  id, nome, maxContas, avisoLimite, apoioTerceiros,
+  acoes: (acoes ?? []).map(({ id: acao, rotulo, dica, confirmar }) => ({ id: acao, rotulo, dica, confirmar })),
+  ferramenta: ferramenta && { rotulo: ferramenta.rotulo, titulo: ferramenta.titulo, dica: ferramenta.dica },
 })));
-ipcMain.on('nova', (_e, jogoId) => {
+// Ação do jogo numa conta (ex.: RESET da sessão), mesmo com a conta escondida
+ipcMain.handle('acao', async (_e, id, acaoId) => {
+  const acao = jogoDe(id)?.acoes?.find((a) => a.id === acaoId);
+  if (!acao) return false;
+  const ok = await views.get(id).webContents.executeJavaScript(`(${acao.rodar})()`).catch(() => false);
+  setTimeout(coletar, 500);
+  return ok;
+});
+ipcMain.on('nova', async (_e, jogoId) => {
   const jogo = JOGOS[jogoId];
   if (!jogo || contas.filter((c) => c.jogo === jogoId).length >= jogo.maxContas) return;
   const conta = { id: `Conta${Math.max(0, ...contas.map((c) => +c.id.slice(5))) + 1}`, jogo: jogoId };
   contas.push(conta);
   salvarContas();
+  await carregarExtensoes(conta);
   criarView(conta);
   entrar(conta.id);
 });
@@ -265,7 +300,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => { if (win.isMinimized()) win.restore(); win.focus(); });
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     win = new BrowserWindow({
       width: 1280, height: 900, frame: false, backgroundColor: '#1f1523', title: 'Multidle',
       webPreferences: { preload: path.join(__dirname, 'preload.js') },
@@ -273,6 +308,11 @@ if (!app.requestSingleInstanceLock()) {
     win.on('closed', () => app.quit());
     win.on('maximize', () => win.webContents.send('maximizada', true));
     win.on('unmaximize', () => win.webContents.send('maximizada', false));
+    // Links do painel (Apoiar, repositório) abrem no navegador do sistema, nunca dentro do app
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https:\/\//.test(url)) shell.openExternal(url);
+      return { action: 'deny' };
+    });
     win.loadFile(path.join(__dirname, 'painel.html'));
 
     // contas.json do PokeIdle x4 era só a lista de nomes (todas do PokeIdle)
@@ -280,6 +320,7 @@ if (!app.requestSingleInstanceLock()) {
       .map((c) => (typeof c === 'string' ? { id: c, jogo: 'pokeidle' } : c))
       .filter((c) => JOGOS[c.jogo]);
     salvarContas();
+    for (const c of contas) await carregarExtensoes(c);
     contas.forEach(criarView);
     setInterval(coletar, ATUALIZAR_MS);
   });

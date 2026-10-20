@@ -1,0 +1,34 @@
+# Ao enviar uma tag "vX.Y.Z", o GitHub gera o instalador do Windows e publica a release com ele.
+# A versão do package.json precisa ser a mesma da tag.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Confere versão da tag
+        shell: bash
+        run: |
+          versao="v$(node -p "require('./package.json').version")"
+          [ "$versao" = "$GITHUB_REF_NAME" ] || { echo "package.json é $versao, mas a tag é $GITHUB_REF_NAME"; exit 1; }
+      - run: npx electron-builder --win nsis --publish never
+      - name: Publica a release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.exe --title "Multidle ${GITHUB_REF_NAME#v}" --notes "Instale o \`Multidle Setup ${GITHUB_REF_NAME#v}.exe\` abaixo. Se já tiver o Multidle, feche-o antes: instalar por cima mantém as contas. Se o Windows mostrar \"O Windows protegeu o computador\", clique em **Mais informações** → **Executar assim mesmo**."

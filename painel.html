@@ -69,6 +69,27 @@ main{flex:1;min-height:0;padding:8px}
 .linha.destaque,.linha.destaque .fraco{color:#ffd166;font-weight:700}
 .vazio{color:#7d6585;font-size:12px}
 .aviso{margin:auto;text-align:center;color:#a98bb3;display:flex;flex-direction:column;gap:8px;align-items:center}
+
+/* Ferramenta do jogo em modal por cima do painel (a página da ferramenta é desenhada em #modal-corpo) */
+#fundo{position:fixed;inset:36px 0 0 0;background:rgba(10,6,12,.7);display:flex;align-items:center;justify-content:center}
+#fundo[hidden]{display:none}
+#modal{width:min(1200px,92%);height:90%;background:#160f19;border:1px solid #9b4dca;border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+#modal-cab{display:flex;align-items:center;gap:8px;height:36px;padding:0 6px 0 12px;flex:none;border-bottom:1px solid #4a3550}
+#modal-titulo{flex:1;font-weight:700;color:#c9a8d4}
+#modal-corpo{flex:1;min-height:0}
+#modal.pequeno{width:min(480px,92%);height:auto;max-height:90%}
+#modal.pequeno #modal-corpo{overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px;line-height:1.5}
+
+.apoiar{background:none;color:#ff7bb0;border:1px solid #4a3550;margin-right:6px}
+.apoiar:hover{background:#2f2134}
+.apoio-caixa{background:#1d1421;border:1px solid #4a3550;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.apoio-caixa h4{margin:0;color:#c9a8d4;font-size:11px;letter-spacing:.05em;text-transform:uppercase}
+.pix{display:flex;gap:6px;align-items:center}
+.pix-qr svg{display:block;width:170px;height:170px;margin:0 auto;border-radius:6px}
+.pix code{flex:1;background:#2f2134;border-radius:6px;padding:4px 8px;font-size:12px;word-break:break-all}
+.apoio-links{display:flex;flex-direction:column;gap:4px}
+a{color:#b48cff}
+.fraco{color:#a98bb3;font-size:12px}
 </style>
 </head>
 <body>
@@ -79,8 +100,8 @@ main{flex:1;min-height:0;padding:8px}
     <button id="todas">Mostrar todas</button>
     <button id="esconder">Esconder todas</button>
     <span id="novas" class="acoes" style="flex:none"></span>
-    <span id="ferramentas" class="acoes" style="flex:none"></span>
   </span>
+  <button id="apoiar" class="apoiar" title="Apoie o Multidle (opcional)">&#x2665; Apoiar</button>
   <span class="ctl">
     <button data-jan="min" title="Minimizar">&#x2013;</button>
     <button data-jan="max" title="Maximizar">&#x2610;</button>
@@ -88,13 +109,25 @@ main{flex:1;min-height:0;padding:8px}
   </span>
 </header>
 <main id="area"><div id="t"></div></main>
+<div id="fundo" hidden><div id="modal"><div id="modal-cab"><span id="modal-titulo"></span><button id="modal-fechar" title="Fechar">&#x2715;</button></div><div id="modal-corpo"></div></div></div>
 <script>
 // Cartão que cada módulo de jogo devolve (jogos/*.js, função montar):
 // { nome, subtitulo, tempo, selos: [{rot, v, cor}], kpis: [{rot, v, h, sub, cor}],
 //   blocos: [{titulo, largo?, vazio?, etiqueta?: {rot, n}, itens?: [{ico, n, nome, destaque?, apagado?}],
 //             linhas?: [{esq, meio?, dir, destaque?}]}], pronto, ferramenta }
+// Apoio (opcional): troque `pix` pela chave do projeto (de preferência aleatória)
+const APOIO = {
+  pix: '340355d9-a9f1-4b9c-927d-190c4cbe1a12',
+  // Pix estático (BR Code) dessa chave, sem valor: copia e cola e o QR (gerados uma vez; a chave não muda)
+  pixCopiaECola: '00020126580014br.gov.bcb.pix0136340355d9-a9f1-4b9c-927d-190c4cbe1a125204000053039865802BR5908MULTIDLE6006BRASIL62070503***6304B20F',
+  pixQr: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 45 45" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h45v45H0z"/><path stroke="#000000" d="M2 2.5h7m6 0h2m1 0h2m1 0h2m3 0h1m1 0h2m2 0h1m3 0h7M2 3.5h1m5 0h1m2 0h1m1 0h2m1 0h4m2 0h1m1 0h1m1 0h1m2 0h2m1 0h1m3 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h4m5 0h3m1 0h1m1 0h2m1 0h2m2 0h1m3 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h1m1 0h2m2 0h3m3 0h2m1 0h1m4 0h1m1 0h1m1 0h1m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m1 0h2m1 0h1m3 0h1m2 0h2m1 0h1m1 0h2m1 0h1m3 0h1m3 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m1 0h1m2 0h4m1 0h1m1 0h1m4 0h1m5 0h2m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 9.5h2m1 0h3m1 0h2m1 0h1m3 0h3m1 0h4m1 0h1M2 10.5h1m1 0h5m3 0h1m1 0h1m1 0h1m1 0h2m1 0h1m1 0h1m1 0h1m1 0h2m1 0h1m1 0h1m1 0h1m1 0h5M3 11.5h1m2 0h2m1 0h2m3 0h3m3 0h1m1 0h2m1 0h1m2 0h1m2 0h1m3 0h2m1 0h1m3 0h1M3 12.5h1m1 0h1m2 0h1m1 0h2m1 0h1m1 0h3m2 0h1m1 0h1m7 0h1m1 0h1m1 0h1m1 0h1m1 0h1m2 0h1M5 13.5h1m1 0h1m3 0h2m3 0h4m3 0h1m2 0h3m2 0h3m1 0h1m5 0h1M2 14.5h5m1 0h4m1 0h3m1 0h1m2 0h1m1 0h2m8 0h1m1 0h1m1 0h3m2 0h1M2 15.5h1m2 0h2m3 0h1m5 0h1m1 0h1m4 0h2m1 0h1m1 0h1m1 0h1m2 0h2m1 0h1m3 0h1m1 0h1M2 16.5h5m1 0h1m5 0h2m3 0h1m2 0h2m8 0h1m2 0h2m1 0h1m1 0h2M3 17.5h3m3 0h1m1 0h2m2 0h4m4 0h2m3 0h1m1 0h1m1 0h1m2 0h1m1 0h1M2 18.5h1m2 0h1m1 0h2m3 0h1m2 0h2m1 0h2m2 0h2m1 0h2m2 0h3m3 0h1m2 0h1m2 0h1M3 19.5h1m2 0h1m4 0h1m1 0h1m1 0h4m2 0h1m3 0h1m5 0h2m2 0h1m1 0h1m3 0h2M3 20.5h2m2 0h2m2 0h7m2 0h1m1 0h1m1 0h3m2 0h1m1 0h4m2 0h2m1 0h3M3 21.5h2m2 0h1m1 0h2m2 0h6m2 0h2m3 0h2m1 0h2m1 0h1m2 0h2m3 0h1M2 22.5h1m2 0h6m1 0h1m1 0h3m3 0h1m1 0h3m2 0h2m1 0h1m1 0h5m1 0h2m1 0h1M5 23.5h3m1 0h1m5 0h1m1 0h3m3 0h1m2 0h1m2 0h1m2 0h2m2 0h2m3 0h1M7 24.5h4m5 0h1m4 0h1m5 0h1m1 0h2m1 0h2m1 0h3m2 0h3M3 25.5h2m1 0h2m1 0h2m1 0h1m1 0h1m1 0h1m1 0h3m1 0h3m1 0h1m1 0h2m4 0h3m5 0h1M4 26.5h1m1 0h3m2 0h1m3 0h1m1 0h1m1 0h1m1 0h1m1 0h3m3 0h3m1 0h3m2 0h1m2 0h1M2 27.5h4m4 0h1m1 0h1m1 0h2m2 0h2m3 0h1m2 0h1m1 0h1m1 0h1m2 0h2m1 0h1m4 0h1M4 28.5h1m1 0h5m1 0h5m1 0h4m2 0h1m2 0h5m4 0h1m1 0h5M3 29.5h1m1 0h2m2 0h1m1 0h3m1 0h1m4 0h1m4 0h3m3 0h2m2 0h1m2 0h1m3 0h1M2 30.5h3m1 0h6m2 0h1m1 0h2m1 0h2m2 0h1m1 0h2m3 0h1m1 0h1m2 0h4m1 0h2M2 31.5h1m1 0h3m2 0h1m1 0h2m6 0h1m2 0h1m1 0h6m1 0h1m3 0h1m2 0h3m1 0h1M2 32.5h1m1 0h2m2 0h1m2 0h2m1 0h3m2 0h1m1 0h1m2 0h1m1 0h2m1 0h1m1 0h2m7 0h3M2 33.5h1m4 0h1m3 0h2m1 0h2m1 0h1m2 0h3m1 0h1m2 0h1m1 0h1m2 0h1m3 0h1m1 0h1M2 34.5h1m1 0h3m1 0h3m1 0h6m3 0h1m2 0h2m2 0h1m3 0h10M10 35.5h2m4 0h9m3 0h1m1 0h1m2 0h2m3 0h1m1 0h1M2 36.5h7m4 0h7m1 0h3m2 0h2m2 0h1m1 0h1m1 0h1m1 0h1m1 0h1m2 0h1M2 37.5h1m5 0h1m1 0h2m1 0h1m2 0h1m2 0h2m2 0h2m1 0h2m3 0h2m1 0h1m3 0h1m1 0h2M2 38.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h1m3 0h1m3 0h2m3 0h5m1 0h8M2 39.5h1m1 0h3m1 0h1m1 0h2m1 0h1m2 0h1m1 0h3m3 0h1m1 0h1m1 0h1m5 0h2m2 0h1m1 0h2M2 40.5h1m1 0h3m1 0h1m1 0h1m2 0h1m1 0h4m1 0h2m3 0h3m1 0h1m1 0h6m1 0h1m1 0h2M2 41.5h1m5 0h1m2 0h2m1 0h1m1 0h5m3 0h1m3 0h1m4 0h1m1 0h1m1 0h2M2 42.5h7m1 0h1m3 0h1m3 0h4m1 0h3m4 0h3m1 0h2m1 0h5"/></svg>',
+  sponsors: 'https://github.com/sponsors/Gustavoabreu94',
+  repositorio: 'https://github.com/Gustavoabreu94/multidle',
+};
+
 const abertas = new Set(); // contas com o jogo visível por cima do cartão
-let maximizada = null;     // conta (ou ferramenta) ocupando o programa inteiro
+let maximizada = null;     // conta ocupando o programa inteiro
+let modal = null;          // ferramenta aberta em modal ('__ferramenta:<jogo>')
 let contas = [];
 let jogos = [];
 
@@ -107,7 +140,11 @@ const jogoDe = (id) => jogos.find((j) => j.id === id);
 // Diz ao programa onde desenhar cada conta: no corpo do cartão, ou na área toda se maximizada
 function layout() {
   const mapa = {};
-  if (maximizada) mapa[maximizada] = caixa($('#area').getBoundingClientRect());
+  // Com o modal aberto só ele aparece: as contas abertas ficariam por cima dele. Elas continuam
+  // marcadas como abertas e voltam do mesmo jeito ao fechar.
+  $('#fundo').hidden = !modal;
+  if (modal) mapa[modal] = caixa($('#modal-corpo').getBoundingClientRect());
+  else if (maximizada) mapa[maximizada] = caixa($('#area').getBoundingClientRect());
   else for (const c of abertas) {
     const el = document.querySelector(`.card[data-conta="${c}"] .corpo`);
     if (el) mapa[c] = caixa(el.getBoundingClientRect());
@@ -163,7 +200,8 @@ function render() {
       : detalhes(c);
     const ferramenta = c.ferramenta && jogo?.ferramenta
       ? `<button data-ferramenta="${esc(c.conta)}" title="${esc(jogo.ferramenta.dica)}">${esc(jogo.ferramenta.rotulo)}</button>` : '';
-    const bts = `<span class="bts">${ferramenta}` + (aberta
+    const acoes = c.pronto ? (jogo?.acoes ?? []).map((a) => `<button data-acao="${esc(a.id)}" data-acao-conta="${esc(c.conta)}" title="${esc(a.dica)}">${esc(a.rotulo)}</button>`).join('') : '';
+    const bts = `<span class="bts">${acoes}${ferramenta}` + (aberta
       ? `<button data-max="${esc(c.conta)}" title="Ocupar o programa todo">&#x2922;</button><button data-fechar="${esc(c.conta)}" title="Esconder">&#x2013;</button>`
       : `<button class="remover" data-remover="${esc(c.conta)}" title="Remover esta conta do Multidle">&#x2715;</button>`) + '</span>';
     return `<div class="card ${aberta ? '' : 'fechado'}" data-conta="${esc(c.conta)}" title="${aberta ? '' : 'Abrir esta conta'}">`
@@ -177,6 +215,12 @@ $('#t').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (b?.dataset.entrar) return window.api.entrar(b.dataset.entrar);
   if (b?.dataset.ferramenta) return abrirFerramenta(contas.find((c) => c.conta === b.dataset.ferramenta).jogo, b.dataset.ferramenta, b);
+  if (b?.dataset.acao) {
+    const c = contas.find((x) => x.conta === b.dataset.acaoConta);
+    const a = jogoDe(c.jogo)?.acoes.find((x) => x.id === b.dataset.acao);
+    if (a && (!a.confirmar || confirm(`${c.nome || c.conta}: ${a.confirmar}`))) window.api.acao(c.conta, a.id);
+    return;
+  }
   if (b?.dataset.max) { maximizada = b.dataset.max; return layout(); }
   if (b?.dataset.fechar) { abertas.delete(b.dataset.fechar); return render(); }
   if (b?.dataset.remover) {
@@ -191,16 +235,48 @@ $('#voltar').onclick = () => { maximizada = null; layout(); };
 $('#todas').onclick = () => { maximizada = null; contas.forEach((c) => abertas.add(c.conta)); render(); };
 $('#esconder').onclick = () => { maximizada = null; abertas.clear(); render(); };
 
-// A ferramenta do jogo ocupa a área toda, como uma conta maximizada ("← Painel" volta)
+// A ferramenta do jogo abre em modal por cima do painel; fechar volta tudo como estava
 async function abrirFerramenta(jogo, conta, botao) {
   const rotulo = botao?.textContent;
   if (botao && conta) { botao.disabled = true; botao.textContent = 'Preparando...'; }
   const ok = await window.api.ferramenta(jogo, conta);
   if (botao && conta) { botao.disabled = false; botao.textContent = rotulo; }
   if (!ok && conta) alert('Não consegui pegar os dados desta conta. Abra a conta e tente de novo.');
-  maximizada = '__ferramenta:' + jogo;
+  abrirModal(jogoDe(jogo)?.ferramenta.titulo ?? '', '', false);
+  modal = '__ferramenta:' + jogo;
   layout();
 }
+
+// O mesmo modal serve à ferramenta (página desenhada por cima do corpo) e ao apoio (HTML daqui)
+function abrirModal(titulo, html, pequeno) {
+  $('#modal-titulo').textContent = titulo;
+  $('#modal-corpo').innerHTML = html;
+  $('#modal').classList.toggle('pequeno', pequeno);
+}
+
+$('#apoiar').onclick = () => {
+  const pix = APOIO.pix
+    ? `<div class="pix-qr">${APOIO.pixQr}</div><div class="fraco" style="text-align:center">Aponte a câmera do app do banco · você escolhe o valor</div>`
+      + `<div class="pix"><code>${esc(APOIO.pix)}</code><button data-copiar="${esc(APOIO.pix)}">Copiar chave</button></div>`
+      + `<button data-copiar="${esc(APOIO.pixCopiaECola)}">Copiar "Pix copia e cola"</button>`
+    : '<div class="fraco">Chave Pix em breve.</div>';
+  // Ferramentas de outros autores que o Multidle usa: quem gosta pode apoiar direto
+  const terceiros = jogos.flatMap((g) => g.apoioTerceiros ?? [])
+    .map((t) => `<div><a href="${esc(t.url)}" target="_blank">${esc(t.nome)}</a> <span class="fraco">· ${esc(t.obs)}</span></div>`).join('');
+  abrirModal('Apoie o Multidle', '<div>O Multidle é <b>gratuito e open source</b>. Se ele te ajuda e você quiser apoiar, '
+    + 'qualquer valor ajuda a manter o projeto. É opcional e não libera nada a mais.</div>'
+    + `<div class="apoio-caixa"><h4>Pix</h4>${pix}</div>`
+    + `<div class="apoio-caixa"><h4>GitHub Sponsors</h4><a href="${esc(APOIO.sponsors)}" target="_blank">github.com/sponsors/Gustavoabreu94</a></div>`
+    + (terceiros ? `<div class="apoio-caixa"><h4>Quem faz as ferramentas que o Multidle usa</h4><div class="apoio-links">${terceiros}</div></div>` : '')
+    + `<div class="fraco">Código, sugestões e problemas: <a href="${esc(APOIO.repositorio)}" target="_blank">github.com/Gustavoabreu94/multidle</a></div>`, true);
+  for (const b of document.querySelectorAll('#modal-corpo [data-copiar]')) {
+    b.onclick = async () => { await navigator.clipboard.writeText(b.dataset.copiar); b.textContent = 'Copiado!'; };
+  }
+  modal = 'apoio';
+  layout();
+};
+$('#modal-fechar').onclick = () => { modal = null; layout(); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal) { modal = null; layout(); } });
 
 document.querySelectorAll('[data-jan]').forEach((b) => { b.onclick = () => window.api.janela(b.dataset.jan); });
 window.api.aoMaximizar((m) => { document.querySelector('[data-jan="max"]').innerHTML = m ? '&#x2750;' : '&#x2610;'; });
@@ -209,10 +285,7 @@ window.api.jogos().then((j) => {
   jogos = j;
   // Um botão de nova conta por jogo (com um jogo só, fica "+ Nova conta")
   $('#novas').innerHTML = jogos.map((g) => `<button data-nova="${esc(g.id)}">+ ${jogos.length > 1 ? esc(g.nome) : 'Nova conta'}</button>`).join('');
-  $('#ferramentas').innerHTML = jogos.filter((g) => g.ferramenta)
-    .map((g) => `<button data-ferr-jogo="${esc(g.id)}" title="${esc(g.ferramenta.titulo)}">${esc(g.ferramenta.titulo.split(' (')[0])}</button>`).join('');
   $('#novas').onclick = (e) => { const b = e.target.closest('[data-nova]'); if (b) window.api.nova(b.dataset.nova); };
-  $('#ferramentas').onclick = (e) => { const b = e.target.closest('[data-ferr-jogo]'); if (b) abrirFerramenta(b.dataset.ferrJogo, null, null); };
   window.api.aoReceberDados((d) => { contas = d; render(); });
   window.addEventListener('resize', layout);
   window.api.atualizar();

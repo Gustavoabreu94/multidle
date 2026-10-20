@@ -60,6 +60,13 @@ async function copiarFicha() {
   return texto;
 }
 
+// Roda na página do jogo: o RESET da sessão (zera só os contadores locais: XP, lucro, abates...)
+function resetarSessao() {
+  const b = document.querySelector('.eco-reset');
+  b?.click();
+  return !!b;
+}
+
 // Roda na página do simulador: cola a ficha e simula
 function preencherSimulador(ficha) {
   const campo = document.getElementById('sheet');
@@ -107,7 +114,7 @@ function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moe
       { titulo: 'Equipe', largo: true, vazio: 'Equipe não encontrada',
         linhas: equipe.map((p, i) => ({ esq: p.nome, meio: `Nv${p.nv}`, dir: `poder ${p.poder.toLocaleString('pt-BR')}`, destaque: i === 0 })) },
     ],
-    pronto: !!nick, // logado e com a tela do jogo carregada
+    pronto: !!nick && !/^[—–-]$/.test(nick), // logado e com a tela carregada (deslogado, o jogo mostra "—")
     ferramenta: equipe.length > 0, // dá para simular
   };
 }
@@ -125,6 +132,18 @@ module.exports = {
   // Login: a sessão do jogo fica no localStorage ("sessao") + cookies do domínio
   origem: 'https://pokeidle.io',
   logado: (storage) => !!storage.sessao,
+  // Extensões do Chrome/Edge que o Multidle carrega nas contas, se o usuário tiver instalado no navegador
+  // (id da Chrome Web Store). "/hunt" mostra onde caçar acima do Pokémon em campo.
+  extensoes: [{ id: 'mhnplloljgchpfpcpbhmcokmnefodjnh', nome: '/hunt for PokeIdle' }],
+  // Autores das ferramentas que o Multidle usa neste jogo (aparecem em "Apoiar")
+  apoioTerceiros: [
+    { nome: 'Simulador de hunt (Lotuzx)', url: 'https://pokedex.lotuz.tech/hunt-sim', obs: 'o simulador do botão Simular' },
+    { nome: 'Extensão /hunt (Liang)', url: 'https://livepix.gg/crispim', obs: 'doação para o autor da extensão' },
+  ],
+  // Botões no cartão que acionam o próprio jogo (funcionam com a conta escondida)
+  acoes: [{ id: 'reset', rotulo: 'Reset', dica: 'Zera a sessão desta conta (XP, lucro, abates...), como o RESET do jogo',
+    confirmar: 'Zerar a sessão desta conta? XP, lucro, abates, capturas e achados da sessão voltam a 0 (a conta e os itens não mudam).',
+    rodar: resetarSessao }],
   ferramenta: { rotulo: 'Simular', titulo: 'Simulador de hunt (pokedex.lotuz.tech)', url: 'https://pokedex.lotuz.tech/hunt-sim',
     dica: 'Simular a melhor hunt para o Pokémon mais forte', preparar: copiarFicha, aplicar: preencherSimulador },
   extrair,
@@ -163,5 +182,6 @@ if (require.main === module) {
   assert.deepStrictEqual(achadosB.itens.map((i) => [i.n, i.apagado]), [[0, true], [2, false]]);
   assert.deepStrictEqual(equipeB.linhas.map((l) => [l.esq, l.destaque]), [['Golem', true], ['Charizard', false]]);
   assert.strictEqual(montar().pronto, false);
+  assert.strictEqual(montar({ nick: '—' }).pronto, false);
   console.log('ok');
 }

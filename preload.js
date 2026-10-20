@@ -11,4 +11,5 @@ contextBridge.exposeInMainWorld('api', {
   entrar: (conta) => ipcRenderer.send('entrar', conta),
   atualizar: () => ipcRenderer.send('atualizar'),
   ferramenta: (jogo, conta) => ipcRenderer.invoke('ferramenta', jogo, conta),
+  acao: (conta, acao) => ipcRenderer.invoke('acao', conta, acao),
 });

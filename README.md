@@ -12,8 +12,23 @@ Hoje suporta o **[PokeIdle](https://pokeidle.io)**. Outros jogos idle podem ser 
 - **Painel de cartões** atualizado a cada 15 s. No PokeIdle: XP, lucro, abates e capturas da hunt (com o ritmo por hora), ouro/diamantes/gemas da conta, bolas e poções restantes, achados da hunt e a equipe com o Pokémon mais forte em destaque.
 - **Clique no cartão** e o jogo aparece dentro dele; `⤢` ocupa o programa todo; **Mostrar todas** / **Esconder todas**.
 - **Leve:** conta escondida sai da tela e para de ser desenhada. Com 4 contas escondidas, ~1,5% de CPU e ~1,2 GB de RAM — e o jogo continua rodando.
-- **Simulador de hunt** (PokeIdle): o botão **Simular** do cartão leva a ficha do Pokémon mais forte para o [simulador do Lotuz](https://pokedex.lotuz.tech/hunt-sim) e já roda a simulação.
+- **Simulador de hunt** (PokeIdle): o botão **Simular** do cartão leva a ficha do Pokémon mais forte para o [simulador do Lotuz](https://pokedex.lotuz.tech/hunt-sim) e já roda a simulação, numa janela por cima do painel.
+- **Reset** no cartão zera a sessão da conta (como o RESET do jogo), mesmo com ela escondida.
+- **♥ Apoiar:** Pix (com QR Code) e GitHub Sponsors, se você quiser apoiar o projeto.
 - Links que saem do jogo (conectar Twitch/Kick) abrem numa janela à parte, com o login da mesma conta.
+- **Extensões do navegador** que você já usa no jogo funcionam dentro do Multidle (veja abaixo).
+
+## Extensões
+
+O Multidle carrega nas contas, automaticamente, extensões de jogo que **você já tenha instalado no Google Chrome ou no Microsoft Edge** — ele usa a cópia do seu navegador, não traz nenhuma junto. Sem a extensão instalada, o resto do Multidle funciona normalmente.
+
+| Jogo | Extensão | O que faz |
+|---|---|---|
+| PokeIdle | [/hunt for PokeIdle](https://chromewebstore.google.com/detail/mhnplloljgchpfpcpbhmcokmnefodjnh), por Liang | Botão **/hunt** acima do Pokémon em campo, com as melhores hunts por XP/h e ouro/h |
+
+Para usar: instale a extensão no Chrome ou no Edge e reabra o Multidle. O botão **/hunt** aparece quando a conta está **aberta na tela** (ele não é desenhado com a conta escondida).
+
+Extensões são de terceiros: o Multidle não as revisa a cada atualização. Instale só as que você confia.
 
 O Multidle **não joga por você** e não fala com o servidor do jogo: ele só mostra o site do jogo e lê os números que já aparecem na tela.
 
@@ -58,7 +73,7 @@ Cada jogo é um módulo em `jogos/` (veja `jogos/pokeidle.js`) que informa:
 - `logado(localStorage)`: como saber que o login terminou;
 - `extrair()`: roda **dentro** da página do jogo e lê o que está na tela;
 - `montar(dados)`: transforma isso no cartão (formato descrito no topo do `<script>` de `painel.html`);
-- opcionalmente `maxContas` e uma `ferramenta` (como o simulador do PokeIdle).
+- opcionalmente `maxContas`, uma `ferramenta` (como o simulador do PokeIdle) e `extensoes` (ids da Chrome Web Store a carregar, se o usuário as tiver instaladas).
 
 Depois é só registrá-lo na lista `JOGOS` em `main.js`.
 
@@ -67,11 +82,12 @@ Depois é só registrá-lo na lista `JOGOS` em `main.js`.
 O Multidle é gratuito e open source. Se ele te ajuda e você quiser apoiar:
 
 - **GitHub Sponsors:** botão **Sponsor** no topo deste repositório
-- **Pix:** `CHAVE-PIX-AQUI`
+- **Pix:** `340355d9-a9f1-4b9c-927d-190c4cbe1a12` (chave aleatória) — o botão **♥ Apoiar** do app também mostra o QR Code
 
 ## Créditos
 
 - [Simulador de hunt](https://pokedex.lotuz.tech/hunt-sim) por Lotuzx.
+- Extensão [/hunt for PokeIdle](https://chromewebstore.google.com/detail/mhnplloljgchpfpcpbhmcokmnefodjnh) por Liang.
 - PokeIdle e todas as imagens dentro do jogo pertencem aos seus donos; Pokémon é marca de Nintendo, Game Freak, Creatures e The Pokémon Company.
 
 ## Licença
