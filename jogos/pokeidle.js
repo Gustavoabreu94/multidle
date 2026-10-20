@@ -30,9 +30,25 @@ function extrair() {
   const achados = [...document.querySelectorAll('#eco-achados .eco-slot')].filter((s) => !s.hidden)
     .map((s) => ({ campo: s.dataset.campo, nome: s.title, ico: s.querySelector('img')?.src ?? '' }));
   const lugar = txt(document.querySelector('#eco-achados .eco-achados-lugar')).replace(/^·\s*/, '');
+  // Estado da caça. Na hunt, o jogo calcula ao lado do relógio: cacando, parado (sem batalha há um
+  // tempo), fora ou caindo (sem conexão). Fora da hunt esse painel some (testado: Pokémon no Centro
+  // Pokémon); aí vale a tela do jogo (#palco "hunt-ativa") e o botão "Desistir" da hunt.
+  const luz = document.querySelector('.eco-luz');
+  const palco = document.getElementById('palco')?.className ?? '';
+  const desistir = document.getElementById('eco-desistir');
+  const naHunt = /hunt-ativa/.test(palco) || (!!desistir && !desistir.hidden && !desistir.classList.contains('hidden'));
+  const caca = luz ? { id: luz.dataset.estado ?? '', texto: txt(document.querySelector('.eco-estado')) }
+    // Na hunt fora do Modo Economia (testado: voltar do Centro Pokémon não religa o modo): está caçando,
+    // mas sem o painel não dá para saber se parou
+    : naHunt ? { id: 'cacando', texto: 'na hunt (sem Modo Economia)' }
+    : { id: 'fora', texto: /centro-ativo/.test(palco) ? 'no Centro Pokémon' : 'fora da hunt' };
+  const tempo = txt(document.querySelector('.eco-tempo'));
+  // HP do Pokémon em campo: o primeiro "atual / máximo" do cartão Em campo (o segundo é o XP)
+  const hpTxt = [...(document.getElementById('ativo-card')?.querySelectorAll('*') ?? [])]
+    .map((e) => (e.children.length ? '' : e.textContent.trim())).find((s) => /^[\d.]+ \/ [\d.]+$/.test(s));
   let hunt = null;
   try { hunt = JSON.parse(localStorage.getItem('sessao-hunt:' + nick.toLowerCase())); } catch {}
-  return { texto: document.body ? document.body.innerText : '', nick, kpis, time, mochila, moedas, achados, lugar, hunt };
+  return { texto: document.body ? document.body.innerText : '', nick, kpis, time, mochila, moedas, achados, lugar, hunt, caca, tempo, hpTxt: hpTxt ?? '' };
 }
 
 // Roda na página do jogo: abre a ficha do Pokémon mais forte e aciona o "Copiar p/ ChatGPT" do jogo,
@@ -88,9 +104,21 @@ function parse(texto) {
   };
 }
 
+// Estado da caça do jogo -> selo do cartão; tudo que não é "caçando" deixa o cartão em alerta
+const ESTADOS = { cacando: 'ok', parado: 'aviso', fora: 'alerta', caindo: 'alerta' };
+
+// "8.318 / 13.344" -> 62 (% de vida)
+function porcentagem(hpTxt) {
+  const [atual, max] = hpTxt.split('/').map((s) => Number(s.replace(/\D/g, '')));
+  return max > 0 ? Math.round((atual / max) * 100) : null;
+}
+
 // Dados da página -> cartão genérico do painel
-function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moedas = {}, achados = [], lugar = '', hunt = null } = {}) {
-  const { hunt: nomeHunt, tempo } = parse(texto);
+function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moedas = {}, achados = [], lugar = '', hunt = null, caca = null, tempo: relogio = '', hpTxt = '' } = {}) {
+  const { hunt: nomeHunt, tempo: tempoTexto } = parse(texto);
+  const tempo = relogio || tempoTexto;
+  const hp = hpTxt ? porcentagem(hpTxt) : null;
+  const nivel = caca && ESTADOS[caca.id];
   const kpi = (rot, d, cor = '') => d && { rot, v: d.v, h: d.h, sub: d.sub, cor };
   const equipe = time.filter((p) => p.nome).sort((a, b) => b.poder - a.poder);
   const itens = mochila.filter((i) => i.q > 0 && doJogo(i.ico));
@@ -98,6 +126,9 @@ function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moe
     nome: nick,
     subtitulo: nomeHunt,
     tempo,
+    // Selo do estado (cor: ok/aviso/alerta) e a vida do Pokémon em campo
+    estado: nivel ? { texto: caca.texto, nivel, extra: hp != null ? `HP ${hp}%` : '' } : null,
+    alerta: !!nivel && nivel !== 'ok',
     selos: [['Ouro', moedas.ouro, 'ouro'], ['Diamantes', moedas.diamantes, 'diam'], ['Gemas', moedas.gemas, 'gema']]
       .filter(([, v]) => v).map(([rot, v, cor]) => ({ rot, v, cor })),
     kpis: [kpi('XP treinador', kpis.xpTreinador), kpi('Lucro líquido', kpis.lucro, kpis.lucro ? sinal(kpis.lucro.v) : ''),
@@ -183,5 +214,11 @@ if (require.main === module) {
   assert.deepStrictEqual(equipeB.linhas.map((l) => [l.esq, l.destaque]), [['Golem', true], ['Charizard', false]]);
   assert.strictEqual(montar().pronto, false);
   assert.strictEqual(montar({ nick: '—' }).pronto, false);
+  const parado = montar({ nick: 'X', caca: { id: 'parado', texto: 'parado há 2m' }, tempo: '1:02:03', hpTxt: '8.318 / 13.344', texto: '' });
+  assert.deepStrictEqual(parado.estado, { texto: 'parado há 2m', nivel: 'aviso', extra: 'HP 62%' });
+  assert.strictEqual(parado.alerta, true);
+  assert.strictEqual(parado.tempo, '1:02:03');
+  assert.strictEqual(montar({ nick: 'X', caca: { id: 'cacando', texto: 'caçando' } }).alerta, false);
+  assert.strictEqual(montar({ nick: 'X' }).estado, null); // fora do modo economia: sem selo
   console.log('ok');
 }

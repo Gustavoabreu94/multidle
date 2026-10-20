@@ -8,10 +8,14 @@ on:
 
 permissions:
   contents: write
+  id-token: write      # atestado de origem (prova que o .exe saiu deste código, compilado aqui)
+  attestations: write
 
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,9 +30,37 @@ jobs:
           versao="v$(node -p "require('./package.json').version")"
           [ "$versao" = "$GITHUB_REF_NAME" ] || { echo "package.json é $versao, mas a tag é $GITHUB_REF_NAME"; exit 1; }
       - run: npx electron-builder --win nsis --publish never
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*.exe
+      # VirusTotal é opcional: só roda se o segredo VT_API_KEY estiver configurado no repositório
+      - name: Envia ao VirusTotal
+        id: vt
+        if: ${{ env.VT_API_KEY != '' }}
+        shell: bash
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: |
+          exe=$(ls dist/*.exe)
+          url=$(curl -s -H "x-apikey: $VT_API_KEY" https://www.virustotal.com/api/v3/files/upload_url | node -p "JSON.parse(require('fs').readFileSync(0)).data")
+          curl -s -H "x-apikey: $VT_API_KEY" -F "file=@$exe" "$url" > /dev/null
+          echo "link=https://www.virustotal.com/gui/file/$(sha256sum "$exe" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Publica a release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          VT_LINK: ${{ steps.vt.outputs.link }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.exe --title "Multidle ${GITHUB_REF_NAME#v}" --notes "Instale o \`Multidle Setup ${GITHUB_REF_NAME#v}.exe\` abaixo. Se já tiver o Multidle, feche-o antes: instalar por cima mantém as contas. Se o Windows mostrar \"O Windows protegeu o computador\", clique em **Mais informações** → **Executar assim mesmo**."
+          exe=$(ls dist/*.exe)
+          hash=$(sha256sum "$exe" | cut -d' ' -f1)
+          {
+            echo "Instale o \`Multidle Setup ${GITHUB_REF_NAME#v}.exe\` abaixo. Se já tiver o Multidle, feche-o antes: instalar por cima mantém as contas."
+            echo
+            echo "Se o Windows mostrar \"O Windows protegeu o computador\", clique em **Mais informações** → **Executar assim mesmo** (o instalador ainda não é assinado digitalmente)."
+            echo
+            echo "### Segurança"
+            echo "- Compilado pelo GitHub Actions a partir deste código, sem passar pelo computador de ninguém. Confira o [atestado de origem](https://github.com/$GITHUB_REPOSITORY/attestations) ou rode \`gh attestation verify \"Multidle Setup ${GITHUB_REF_NAME#v}.exe\" -R $GITHUB_REPOSITORY\`."
+            echo "- SHA-256: \`$hash\` (no PowerShell: \`Get-FileHash \".\\Multidle Setup ${GITHUB_REF_NAME#v}.exe\"\`)"
+            if [ -n "$VT_LINK" ]; then echo "- [Análise no VirusTotal]($VT_LINK)"; fi
+          } > notas.md
+          gh release create "$GITHUB_REF_NAME" "$exe" --title "Multidle ${GITHUB_REF_NAME#v}" --notes-file notas.md

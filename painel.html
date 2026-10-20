@@ -32,6 +32,11 @@ main{flex:1;min-height:0;padding:8px}
 .nome{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
 .jogo{font-size:11px;color:#a98bb3;font-weight:400}
 .tempo{color:#a98bb3;font-variant-numeric:tabular-nums}
+.card.alerta{border-color:#e0475a;box-shadow:0 0 0 1px #e0475a inset}
+.estado{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;white-space:nowrap}
+.estado::before{content:'';width:8px;height:8px;border-radius:50%;background:currentColor}
+.estado.ok{color:#6ee08a}.estado.aviso{color:#ffd166}.estado.alerta{color:#ff6b7a}
+.estado .extra{color:#a98bb3;font-weight:400}
 .bts{display:flex;gap:4px}
 .bts button{padding:2px 8px;background:#4a3550}
 .bts button:hover{background:#9b4dca}
@@ -112,7 +117,7 @@ a{color:#b48cff}
 <div id="fundo" hidden><div id="modal"><div id="modal-cab"><span id="modal-titulo"></span><button id="modal-fechar" title="Fechar">&#x2715;</button></div><div id="modal-corpo"></div></div></div>
 <script>
 // Cartão que cada módulo de jogo devolve (jogos/*.js, função montar):
-// { nome, subtitulo, tempo, selos: [{rot, v, cor}], kpis: [{rot, v, h, sub, cor}],
+// { nome, subtitulo, tempo, estado?: {texto, nivel: ok|aviso|alerta, extra}, alerta, selos: [{rot, v, cor}], kpis: [{rot, v, h, sub, cor}],
 //   blocos: [{titulo, largo?, vazio?, etiqueta?: {rot, n}, itens?: [{ico, n, nome, destaque?, apagado?}],
 //             linhas?: [{esq, meio?, dir, destaque?}]}], pronto, ferramenta }
 // Apoio (opcional): troque `pix` pela chave do projeto (de preferência aleatória)
@@ -204,8 +209,13 @@ function render() {
     const bts = `<span class="bts">${acoes}${ferramenta}` + (aberta
       ? `<button data-max="${esc(c.conta)}" title="Ocupar o programa todo">&#x2922;</button><button data-fechar="${esc(c.conta)}" title="Esconder">&#x2013;</button>`
       : `<button class="remover" data-remover="${esc(c.conta)}" title="Remover esta conta do Multidle">&#x2715;</button>`) + '</span>';
-    return `<div class="card ${aberta ? '' : 'fechado'}" data-conta="${esc(c.conta)}" title="${aberta ? '' : 'Abrir esta conta'}">`
-      + `<div class="topo"><span class="nome">${esc(c.nome || c.conta)} <span class="jogo">${esc(jogo?.nome)}</span></span><span class="tempo">${esc(c.tempo)}</span>${bts}</div>`
+    // Estado da caça (caçando / parado / fora / sem conexão): fora do "ok", o cartão fica com borda vermelha
+    const estado = c.estado && c.pronto
+      ? `<span class="estado ${esc(c.estado.nivel)}" title="Estado da caça, como o jogo mostra ao lado do relógio">${esc(c.estado.texto)}`
+        + (c.estado.extra ? ` <span class="extra">· ${esc(c.estado.extra)}</span>` : '') + '</span>'
+      : '';
+    return `<div class="card ${aberta ? '' : 'fechado'} ${c.alerta && c.pronto ? 'alerta' : ''}" data-conta="${esc(c.conta)}" title="${aberta ? '' : 'Abrir esta conta'}">`
+      + `<div class="topo"><span class="nome">${esc(c.nome || c.conta)} <span class="jogo">${esc(jogo?.nome)}</span></span>${estado}<span class="tempo">${esc(c.tempo)}</span>${bts}</div>`
       + `<div class="corpo">${corpo}</div></div>`;
   }).join('');
   layout();
