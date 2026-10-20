@@ -2,7 +2,7 @@
 // área do jogo por conta. Cada conta tem a própria partição (login isolado). Tudo que é de um jogo
 // fica no módulo dele em jogos/. Login do Google é feito num Chrome/Edge de verdade (o Google bloqueia
 // login em app embutido) e a sessão do jogo é copiada para cá.
-const { app, BrowserWindow, WebContentsView, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, session, shell, powerSaveBlocker } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
@@ -255,11 +255,29 @@ ipcMain.on('janela', (_e, acao) => {
   if (acao === 'max') win.isMaximized() ? win.unmaximize() : win.maximize();
   if (acao === 'fechar') win.close();
 });
-ipcMain.handle('jogos', () => Object.values(JOGOS).map(({ id, nome, maxContas, avisoLimite, ferramenta, apoioTerceiros, acoes }) => ({
+ipcMain.handle('jogos', () => Object.values(JOGOS).map(({ id, nome, maxContas, avisoLimite, ferramenta, apoioTerceiros, acoes, venda }) => ({
   id, nome, maxContas, avisoLimite, apoioTerceiros,
+  venda: venda && { rotulo: venda.rotulo, dica: venda.dica },
   acoes: (acoes ?? []).map(({ id: acao, rotulo, dica, confirmar }) => ({ id: acao, rotulo, dica, confirmar })),
   ferramenta: ferramenta && { rotulo: ferramenta.rotulo, titulo: ferramenta.titulo, dica: ferramenta.dica },
 })));
+// Venda do Depot (duas etapas; a confirmação do jogo fica aberta entre elas, esperando o usuário)
+ipcMain.handle('venda-preparar', async (_e, id) => {
+  const venda = jogoDe(id)?.venda;
+  if (!venda) return { erro: 'Este jogo não tem venda pelo Multidle.' };
+  const pagina = views.get(id).webContents;
+  pagina.setBackgroundThrottling(false); // a preparação espera a aba e a confirmação do jogo abrirem
+  return pagina.executeJavaScript(`(${venda.preparar})()`).catch((e) => ({ erro: e.message }))
+    .finally(() => pagina.setBackgroundThrottling(true));
+});
+ipcMain.handle('venda-concluir', async (_e, id, vender) => {
+  const venda = jogoDe(id)?.venda;
+  if (!venda) return false;
+  const ok = await views.get(id).webContents.executeJavaScript(`(${venda.concluir})(${vender ? 'true' : 'false'})`).catch(() => false);
+  setTimeout(coletar, 1500);
+  return ok;
+});
+
 // Ação do jogo numa conta (ex.: RESET da sessão), mesmo com a conta escondida
 ipcMain.handle('acao', async (_e, id, acaoId) => {
   const acao = jogoDe(id)?.acoes?.find((a) => a.id === acaoId);
@@ -361,16 +379,20 @@ let canaisOficiais = [];
 // Live solta (fora de janela) fica com largura 0 e o chat da Twitch NUNCA entra na sala do canal (testado:
 // loga no chat mas não manda o JOIN, e o jogo não acha o jogador). Por isso as lives moram numa janela
 // invisível de tamanho normal, sem desacelerar; o modal só pega emprestado para mostrar.
+// No modo "só o chat" a janela pode ser pequena e desacelerar normalmente: o chat entra na sala e continua
+// recebendo do mesmo jeito (testado lado a lado); a live com vídeo precisa do tamanho cheio
 const LIVE_TAMANHO = { x: 0, y: 0, width: 1280, height: 720 };
+const CHAT_TAMANHO = { x: 0, y: 0, width: 400, height: 500 };
+const tamanhoLive = () => (config.livesSoChat ? CHAT_TAMANHO : LIVE_TAMANHO);
 let janelaLives = null;
 function guardarLive(v) {
   janelaLives ??= new BrowserWindow({ show: false, ...LIVE_TAMANHO, skipTaskbar: true, title: 'Multidle — lives' });
   janelaLives.contentView.addChildView(v);
-  v.setBounds(LIVE_TAMANHO);
+  v.setBounds(tamanhoLive());
 }
 
 function abrirLive(login, nome, url) {
-  const v = new WebContentsView({ webPreferences: { partition: 'persist:twitch', backgroundThrottling: false } });
+  const v = new WebContentsView({ webPreferences: { partition: 'persist:twitch', backgroundThrottling: !!config.livesSoChat } });
   guardarLive(v);
   const wc = v.webContents;
   wc.setAudioMuted(true);
@@ -546,6 +568,9 @@ if (!app.requestSingleInstanceLock()) {
     for (const c of contas) await carregarExtensoes(c);
     contas.forEach(criarView);
     criarBotaoVoltar(); // depois das contas: fica por cima delas
+    // Jogo idle precisa continuar rodando: com o Multidle aberto o Windows não suspende o PC (na bateria
+    // ele suspendia após 5 min sem uso e as contas paravam). A tela ainda pode apagar normalmente.
+    powerSaveBlocker.start('prevent-app-suspension');
     setInterval(coletar, ATUALIZAR_MS);
     vigiarAtualizacoes();
     // Lives: primeira leitura depois que as contas carregarem e o primeiro cartão for lido

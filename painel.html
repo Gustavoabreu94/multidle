@@ -227,7 +227,8 @@ function render() {
       : detalhes(c);
     const ferramenta = c.ferramenta && jogo?.ferramenta
       ? `<button data-ferramenta="${esc(c.conta)}" title="${esc(jogo.ferramenta.dica)}">${esc(jogo.ferramenta.rotulo)}</button>` : '';
-    const acoes = c.pronto ? (jogo?.acoes ?? []).map((a) => `<button data-acao="${esc(a.id)}" data-acao-conta="${esc(c.conta)}" title="${esc(a.dica)}">${esc(a.rotulo)}</button>`).join('') : '';
+    const acoes = (c.pronto ? (jogo?.acoes ?? []).map((a) => `<button data-acao="${esc(a.id)}" data-acao-conta="${esc(c.conta)}" title="${esc(a.dica)}">${esc(a.rotulo)}</button>`).join('') : '')
+      + (c.pronto && jogo?.venda ? `<button data-vender="${esc(c.conta)}" title="${esc(jogo.venda.dica)}">${esc(jogo.venda.rotulo)}</button>` : '');
     const bts = `<span class="bts">${acoes}${ferramenta}` + (aberta
       ? `<button data-max="${esc(c.conta)}" title="Ocupar o programa todo">&#x2922;</button><button data-fechar="${esc(c.conta)}" title="Esconder">&#x2013;</button>`
       : `<button class="remover" data-remover="${esc(c.conta)}" title="Remover esta conta do Multidle">&#x2715;</button>`) + '</span>';
@@ -253,6 +254,7 @@ $('#t').addEventListener('click', (e) => {
     if (a && (!a.confirmar || confirm(`${c.nome || c.conta}: ${a.confirmar}`))) window.api.acao(c.conta, a.id);
     return;
   }
+  if (b?.dataset.vender) return venderDepot(b.dataset.vender, b);
   if (b?.dataset.max) { maximizada = b.dataset.max; return layout(); }
   if (b?.dataset.fechar) { abertas.delete(b.dataset.fechar); return render(); }
   if (b?.dataset.remover) {
@@ -267,6 +269,22 @@ $('#voltar').onclick = () => { maximizada = null; layout(); };
 window.api.aoVoltar(() => { maximizada = null; layout(); });
 $('#todas').onclick = () => { maximizada = null; contas.forEach((c) => abertas.add(c.conta)); render(); };
 $('#esconder').onclick = () => { maximizada = null; abertas.clear(); render(); };
+
+// Venda do Depot: o jogo abre a confirmação dele (escondida), o Multidle mostra o que ela diz e a
+// resposta do usuário vai para ela. Nada é vendido sem o "OK" aqui.
+async function venderDepot(conta, botao) {
+  const c = contas.find((x) => x.conta === conta);
+  const rotulo = botao.textContent;
+  botao.disabled = true; botao.textContent = 'Lendo o Depot...';
+  const r = await window.api.vendaPreparar(conta);
+  botao.disabled = false; botao.textContent = rotulo;
+  if (r.erro) return alert(`${c.nome || conta}: ${r.erro}`);
+  if (r.nada) return alert(`${c.nome || conta}: ${r.info || 'nada para vender no Depot.'}`);
+  const valiosos = r.valiosos?.length ? `\n\n⚠ ATENÇÃO: o lote inclui ${r.valiosos.length} shiny/P5:\n- ${r.valiosos.join('\n- ')}` : '';
+  const filtro = /filtr/i.test(r.titulo) ? '\n\n(O Depot está com filtro: vende só o que passa no filtro.)' : '';
+  const sim = confirm(`${c.nome || conta} — ${r.titulo}\n\n${r.info}${filtro}${valiosos}\n\nA Coleção fica de fora. Não dá para desfazer. Vender?`);
+  await window.api.vendaConcluir(conta, sim);
+}
 
 // A ferramenta do jogo abre em modal por cima do painel; fechar volta tudo como estava
 async function abrirFerramenta(jogo, conta, botao) {

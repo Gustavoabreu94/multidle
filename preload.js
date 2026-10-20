@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('api', {
   atualizar: () => ipcRenderer.send('atualizar'),
   ferramenta: (jogo, conta) => ipcRenderer.invoke('ferramenta', jogo, conta),
   acao: (conta, acao) => ipcRenderer.invoke('acao', conta, acao),
+  vendaPreparar: (conta) => ipcRenderer.invoke('venda-preparar', conta),
+  vendaConcluir: (conta, vender) => ipcRenderer.invoke('venda-concluir', conta, vender),
   aoAtualizacao: (fn) => {
     ipcRenderer.on('atualizacao', (_e, v) => fn(v));
     ipcRenderer.invoke('versao-baixada').then((v) => v && fn(v)); // já baixada antes do painel abrir

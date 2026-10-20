@@ -112,6 +112,40 @@ function voltarEconomia() {
   return true;
 }
 
+// Venda do Depot em duas etapas, sempre pela confirmação do próprio jogo (que já deixa a Coleção de
+// fora e lista shiny/P5 que iriam junto). 1) prepararVenda: abre a aba Depot do Modo Economia, clica
+// em "Vender todo o Depot" e lê a confirmação do jogo, que fica aberta; 2) concluirVenda: Sim ou Não
+// nessa confirmação. A confirmação do jogo só vende até o último Pokémon que estava na tela.
+async function prepararVenda() {
+  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+  const txt = (el) => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
+  if (!document.getElementById('confirmar')?.classList.contains('hidden')) return { erro: 'Há uma confirmação do jogo aberta nesta conta. Abra a conta e feche-a.' };
+  const aba = document.querySelector('.eco-aba[data-eco-aba="depot"]');
+  if (!aba) return { erro: 'Ligue o Modo Economia desta conta para vender pelo Multidle.' };
+  if (!aba.classList.contains('on')) aba.click();
+  let botao = null;
+  for (let i = 0; i < 30 && !(botao = document.querySelector('#eco-cofre .mk-vender-tudo .mk-acao')); i++) await espera(100);
+  if (!botao) return { erro: 'Não achei o botão "Vender todo o Depot".' };
+  const info = txt(botao.closest('.mk-vender-tudo').querySelector('.mk-vt-info'));
+  if (botao.disabled) return { nada: true, info };
+  botao.click();
+  for (let i = 0; i < 30 && document.getElementById('confirmar').classList.contains('hidden'); i++) await espera(100);
+  if (document.getElementById('confirmar').classList.contains('hidden')) return { erro: 'A confirmação do jogo não abriu.' };
+  const texto = document.getElementById('confirmar-texto');
+  return {
+    info,
+    titulo: txt(document.getElementById('confirmar-titulo')),
+    valiosos: [...texto.querySelectorAll('.dlg-ficha-pk')].map((f) => txt(f)),
+  };
+}
+
+function concluirVenda(vender) {
+  const caixa = document.getElementById('confirmar');
+  if (caixa.classList.contains('hidden')) return false;
+  document.getElementById(vender ? 'confirmar-sim' : 'confirmar-nao').click();
+  return true;
+}
+
 // Roda na página do jogo: o RESET da sessão (zera só os contadores locais: XP, lucro, abates...)
 function resetarSessao() {
   const b = document.querySelector('.eco-reset');
@@ -224,6 +258,8 @@ module.exports = {
   },
   // Ao esconder a conta no Multidle
   aoEsconder: voltarEconomia,
+  // Vender o Depot pelo cartão (duas etapas, ver prepararVenda)
+  venda: { rotulo: 'Vender Depot', dica: 'Vende o Depot pela confirmação do próprio jogo (a Coleção fica de fora)', preparar: prepararVenda, concluir: concluirVenda },
   // Botões no cartão que acionam o próprio jogo (funcionam com a conta escondida)
   acoes: [{ id: 'reset', rotulo: 'Reset', dica: 'Zera a sessão desta conta (XP, lucro, abates...), como o RESET do jogo',
     confirmar: 'Zerar a sessão desta conta? XP, lucro, abates, capturas e achados da sessão voltam a 0 (a conta e os itens não mudam).',
