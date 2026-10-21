@@ -119,7 +119,8 @@ a{color:#b48cff}
 #modal.sniper{width:min(900px,94%)}
 #modal.sniper #modal-corpo{overflow:auto;padding:10px 14px;display:flex;flex-direction:column;gap:10px}
 table.depot input[type=number]{width:110px}
-.sniper-registro{font-size:12px;font-family:Consolas,monospace;background:#1d1421;border:1px solid #4a3550;border-radius:8px;padding:6px 8px;min-height:140px;max-height:260px;overflow:auto;white-space:pre-wrap;flex:none}
+.sniper-registro{font-size:12px;font-family:Consolas,monospace;background:#1d1421;border:1px solid #4a3550;border-radius:8px;padding:6px 8px;min-height:140px;max-height:260px;overflow:auto;flex:none}
+.sniper-registro td{white-space:nowrap}.sniper-registro td:last-child{white-space:normal}
 </style>
 </head>
 <body>
@@ -410,7 +411,25 @@ function atualizarSniper() {
   }
   const contas = Object.entries(s.gasto.conta).map(([id, v]) => `${esc(s.nomes?.[id] ?? id)}: ${num(Math.round(v))}`).join(' · ');
   $('#sniper-gasto').innerHTML = `Gasto hoje${s.cfg.simulacao ? ' (simulação)' : ''}, em Gemas: ${contas || 'nada'}`;
-  $('#sniper-registro').textContent = s.registro.slice().reverse().map((l) => `${hora(l.em)}  ${l.texto}`).join('\n') || 'Nada ainda.';
+  mostrarHistorico();
+}
+// Histórico com filtro (o programa filtra; aqui só desenha). O filtro fica guardado entre aberturas.
+const TIPOS_HIST = { tentativas: 'Todas as tentativas', comprado: '✅ Comprado', perdido: '❌ Perdido', tentando: '⏳ Aguardando resultado',
+  erro: '⚠ Não passou / erro', simulado: '🧪 Simulado', 'sem-saldo': 'Sem saldo/teto', config: 'Ligar/desligar' };
+const filtroHist = { conta: '', tipo: '', de: '', ate: '' };
+const quando = (t) => new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+async function mostrarHistorico() {
+  const linhas = await window.api.sniperRegistro({ conta: filtroHist.conta, tipo: filtroHist.tipo,
+    de: filtroHist.de ? new Date(filtroHist.de).getTime() : 0, ate: filtroHist.ate ? new Date(filtroHist.ate).getTime() : 0 });
+  const caixa = $('#sniper-registro');
+  if (!caixa) return;
+  const quantos = (tipo) => linhas.filter((l) => l.tipo === tipo).length;
+  $('#sn-contagem').textContent = `${linhas.filter((l) => l.anuncio).length} tentativas · ${quantos('comprado')} comprados · ${quantos('perdido')} perdidos`
+    + (quantos('tentando') ? ` · ${quantos('tentando')} aguardando` : '');
+  caixa.innerHTML = linhas.length
+    ? `<table class="depot"><tr><th>Quando</th><th>Conta</th><th>Resultado</th><th>Item</th></tr>${linhas.map((l) =>
+      `<tr><td>${quando(l.em)}</td><td>${esc(l.conta ?? '')}</td><td>${esc(l.detalhe ?? '')}</td><td>${esc(l.texto)}</td></tr>`).join('')}</table>`
+    : 'Nada com esse filtro.';
 }
 function desenharSniper() {
   const s = estadoSniper;
@@ -423,7 +442,7 @@ function desenharSniper() {
       <label title="Máximo que cada conta gasta por dia (ouro conta convertido)">Teto/dia por conta <input type="number" id="sn-teto" min="0" value="${esc(c.tetoDiaConta)}" style="width:70px"> Gemas</label>
     </div>
     <div class="fraco">Cada anúncio é disputado por UMA conta só (a com mais saldo). Consulta a cada ${esc(c.intervaloS)} s, revezando as contas.</div>
-    <table class="depot"><tr><th></th><th>Alvo</th><th>Moeda</th><th>Preço máx.</th><th>Máx./dia</th><th>Hoje</th><th>Menor no Mercado</th></tr>
+    <table class="depot"><tr><th><input type="checkbox" id="sn-todos" title="Ativar ou desativar todos os alvos" ${c.alvos.length && c.alvos.every((a) => a.ativo) ? 'checked' : ''}></th><th>Alvo</th><th>Moeda</th><th>Preço máx.</th><th>Máx./dia</th><th>Hoje</th><th>Menor no Mercado</th></tr>
     ${c.alvos.map((a) => `<tr data-alvo="${esc(a.id)}"><td><input type="checkbox" data-campo="ativo" ${a.ativo ? 'checked' : ''}></td>
       <td>${esc(a.nome)}</td><td>${esc(s.moedas[a.moeda] ?? a.moeda)}</td>
       <td><input type="number" min="0" data-campo="precoMax" value="${esc(a.precoMax)}"></td>
@@ -431,8 +450,15 @@ function desenharSniper() {
       <td data-hoje="${esc(a.id)}"></td><td data-menor="${esc(a.id)}"></td>
       <td><button data-remover="${esc(a.id)}" title="Remover este alvo">&#x2715;</button></td></tr>`).join('')}</table>
     <div id="sn-novo" class="lives-barra"><button id="sn-adicionar">+ Adicionar alvo</button></div>
-    <div id="sniper-gasto" class="fraco"></div>
-    <div class="depot-rodape"><span class="fraco">Histórico (mais recente em cima)</span><button id="sn-historico" title="Abre o arquivo com todas as tentativas">Abrir histórico completo</button></div>
+    <div class="depot-rodape"><span id="sniper-gasto" class="fraco"></span><button id="sn-zerar" title="Zera o gasto e a quantidade comprada hoje em cada alvo">Zerar contagem de hoje</button></div>
+    <div class="depot-rodape"><span class="fraco">Histórico (mais recente em cima) · <span id="sn-contagem"></span></span><span><button id="sn-historico" title="Abre o arquivo com todas as tentativas">Abrir histórico completo</button> <button id="sn-limpar" title="Apaga o histórico da tela e do arquivo">Limpar</button></span></div>
+    <div class="lives-barra" id="sn-filtro">
+      <select data-f="conta"><option value="">Todas as contas</option>${Object.values(s.nomes ?? {}).map((n) => `<option ${filtroHist.conta === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+      <select data-f="tipo"><option value="">Todos os tipos</option>${Object.entries(TIPOS_HIST).map(([k, n]) => `<option value="${k}" ${filtroHist.tipo === k ? 'selected' : ''}>${n}</option>`).join('')}</select>
+      <label>De <input type="datetime-local" data-f="de" value="${esc(filtroHist.de)}"></label>
+      <label>Até <input type="datetime-local" data-f="ate" value="${esc(filtroHist.ate)}"></label>
+      <button id="sn-filtro-limpar">Limpar filtro</button>
+    </div>
     <div id="sniper-registro" class="sniper-registro"></div>`, false);
   $('#modal').classList.add('sniper');
   modal = 'sniper';
@@ -449,19 +475,27 @@ function desenharSniper() {
     return { ...a, ativo: v('ativo').checked, precoMax: v('precoMax').value, maxDia: v('maxDia').value };
   });
   const salvarERedesenhar = (alvos) => { redesenharSniper = true; window.api.sniperSalvar({ alvos }); };
-  $('#modal-corpo').onchange = (e) => { if (e.target.dataset.campo) window.api.sniperSalvar({ alvos: lerTabela() }); };
+  $('#modal-corpo').onchange = (e) => {
+    if (e.target.id === 'sn-todos') document.querySelectorAll('tr[data-alvo] [data-campo="ativo"]').forEach((x) => { x.checked = e.target.checked; });
+    else if (!e.target.dataset.campo) return;
+    window.api.sniperSalvar({ alvos: lerTabela() });
+  };
   $('#modal-corpo').onclick = (e) => {
     const id = e.target.dataset?.remover;
     if (id) salvarERedesenhar(lerTabela().filter((a) => a.id !== id));
   };
   $('#sn-historico').onclick = () => window.api.sniperHistorico();
+  $('#sn-filtro').onchange = (e) => { if (e.target.dataset.f) { filtroHist[e.target.dataset.f] = e.target.value; mostrarHistorico(); } };
+  $('#sn-filtro-limpar').onclick = () => { Object.assign(filtroHist, { conta: '', tipo: '', de: '', ate: '' }); desenharSniper(); };
+  $('#sn-zerar').onclick = () => { if (confirm('Zerar o gasto e a quantidade de hoje? O sniper volta a poder comprar até os limites.')) window.api.sniperZerarDia(); };
+  $('#sn-limpar').onclick = () => { if (confirm('Apagar todo o histórico do sniper?')) window.api.sniperLimpar(); };
   $('#sn-adicionar').onclick = async (e) => {
     e.target.disabled = true;
     e.target.textContent = 'Lendo o Mercado...';
     const r = await window.api.sniperCatalogo();
     if (r.erro) return void ($('#sn-novo').innerHTML = `<span class="neg">${esc(r.erro)}</span>`);
     const menor = (i) => [i.minOrb != null && `${num(i.minOrb)} Gemas`, i.minGold != null && `${num(i.minGold)} ouro`].filter(Boolean).join(' · ');
-    $('#sn-novo').innerHTML = `<select id="sn-item"><option value="shiny">✨ Qualquer shiny</option>${r.itens.map((i) =>
+    $('#sn-novo').innerHTML = `<select id="sn-item"><option value="shiny">✨ Qualquer shiny</option><option value="diamante">💎 Diamantes (preço por diamante)</option>${r.itens.map((i) =>
       `<option value="${i.itemId}">${esc(i.nome)} (agora: ${esc(menor(i))})</option>`).join('')}</select>
       <select id="sn-moeda">${Object.entries(s.moedas).map(([k, n]) => `<option value="${esc(k)}">${esc(n)}</option>`).join('')}</select>
       <label>Preço máx. <input type="number" id="sn-preco" min="0" style="width:110px"></label>
@@ -470,10 +504,11 @@ function desenharSniper() {
     $('#sn-confirmar').onclick = () => {
       const item = $('#sn-item').value;
       const moeda = $('#sn-moeda').value;
-      const nome = item === 'shiny' ? 'Qualquer shiny' : r.itens.find((i) => String(i.itemId) === item).nome;
+      const especial = { shiny: 'Qualquer shiny', diamante: 'Diamantes' }[item];
+      const nome = especial ?? r.itens.find((i) => String(i.itemId) === item).nome;
       if (!(Number($('#sn-preco').value) > 0)) return void $('#sn-preco').focus();
-      salvarERedesenhar([...lerTabela(), { id: `${item}-${moeda}-${Date.now().toString(36)}`, tipo: item === 'shiny' ? 'shiny' : 'item',
-        itemId: item === 'shiny' ? undefined : Number(item), nome, moeda, precoMax: $('#sn-preco').value, maxDia: $('#sn-maxdia').value, ativo: true }]);
+      salvarERedesenhar([...lerTabela(), { id: `${item}-${moeda}-${Date.now().toString(36)}`, tipo: especial ? item : 'item',
+        itemId: especial ? undefined : Number(item), nome, moeda, precoMax: $('#sn-preco').value, maxDia: $('#sn-maxdia').value, ativo: true }]);
     };
   };
   layout();

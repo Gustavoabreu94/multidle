@@ -237,8 +237,14 @@ const GANCHO_CONEXAO = `(() => {
     if (/pokeidle/.test(String(args[0]))) {
       m.ws = ws;
       ws.addEventListener('message', (ev) => {
-        if (/"(marketComprado|mktSorteio)"/.test(ev.data)) { m.eventos.push({ em: Date.now(), dados: String(ev.data).slice(0, 2000) }); if (m.eventos.length > 50) m.eventos.shift(); }
         let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+        // os eventos de compra/sorteio vêm dentro das mensagens de eventos do jogo (tipo no campo "k")
+        const guardar = (o, fundo) => {
+          if (!o || typeof o !== 'object' || fundo > 4) return;
+          if (/^(marketComprado|mktSorteio)$/.test(o.k) || (o.k === 'aviso' && /^market[.]/.test(o.msg))) { m.eventos.push(o); if (m.eventos.length > 100) m.eventos.shift(); return; }
+          for (const v of Object.values(o)) guardar(v, fundo + 1);
+        };
+        if (/"(marketComprado|mktSorteio)"|"market[.]/.test(ev.data)) guardar(msg, 0);
         if (msg && msg.servidorAgora) m.desvio = Date.now() - msg.servidorAgora;
         // os itens próprios do jogo (fragmentos, casas...) só vêm na mensagem de entrada, não no catálogo público
         if (Array.isArray(msg?.itensNossos)) m.itensNossos = msg.itensNossos.map((i) => [i.id, i.nome ?? i.name]);
@@ -295,16 +301,46 @@ const anuncioDe = (l) => ({
   nome: l.ficha?.nome ?? '', shiny: !!l.ficha?.shiny, nivel: l.ficha?.level ?? null, nota: l.ficha?.nota ?? null, potencia: l.ficha?.potencia ?? null,
 });
 
+// Um evento de compra/sorteio -> { id do anúncio, tipo, detalhe } para o registro (ou null). O sorteio chega
+// em partes: "entrou" (quem está disputando), "lista" (quem entrou depois e quem levou) e "fim" (o
+// resultado deste pedido); `memoria` guarda as partes de cada anúncio até o fim.
+function resultadoDoMercado(e, memoria) {
+  const r = (tipo, detalhe) => ({ id: e.id, tipo, detalhe, descricao: e.descricao ?? '', sorteio: !!e.sorteio });
+  if (e.k === 'marketComprado') return r('comprado', e.sorteio ? '✅ Comprado no sorteio' : '✅ Comprado');
+  // Avisos do Mercado (testado: é assim que o resultado do sorteio chega). Não dizem o anúncio: quem chama
+  // liga o aviso à tentativa enviada mais antiga da conta.
+  if (e.k === 'aviso') {
+    if (e.msg === 'market.sorteio' || e.msg === 'market.sorteioEspera') return r('tentando', '🎲 Entrou no sorteio');
+    if (e.msg === 'market.sorteioPerdeu') return r('perdido', '❌ Outro jogador levou no sorteio (nada cobrado)');
+    if (e.msg === 'market.retencao') return r('erro', '⚠ Não passou: o anúncio ainda estava em retenção');
+    return /^market\./.test(e.msg) ? r('erro', `⚠ Não passou (${e.msg.slice(7)})`) : null;
+  }
+  if (e.k !== 'mktSorteio' || !e.id) return null;
+  const s = memoria.get(e.id) ?? { quem: new Set(), levaram: [], total: 0 };
+  memoria.set(e.id, s);
+  for (const n of e.quem ?? []) s.quem.add(n);
+  for (const c of e.levaram ?? []) if (c?.nick && !s.levaram.includes(c.nick)) s.levaram.push(c.nick);
+  s.total = Math.max(s.total, Number(e.total) || 0, s.quem.size);
+  if (e.fase === 'entrou') return r('tentando', `🎲 No sorteio (${s.total} na disputa)`);
+  if (e.fase !== 'fim') return null;
+  memoria.delete(e.id);
+  if (e.ok) return r('comprado', `✅ Comprado no sorteio (${s.total} na disputa)`);
+  if (e.perdeu) return r('perdido', `❌ Perdeu para ${s.levaram.join(', ') || 'outro jogador'} (${s.total} na disputa, nada cobrado)`);
+  return r('erro', `⚠ Não passou: ${e.msg ?? 'sem motivo informado'}`);
+}
+
 // Alvos que o sniper sabe vigiar: um item (por id) ou "qualquer shiny"
 const sniper = {
   gancho: GANCHO_CONEXAO,
   consultar: consultarMercado,
   comprar: comprarNoMercado,
   eventos: eventosDoMercado,
+  resultado: resultadoDoMercado,
   // pedido de consulta do alvo + aba da resposta
-  consulta: (alvo) => (alvo.tipo === 'shiny'
-    ? { pedido: { t: 'market.listar', tipo: 'pokemon', moeda: alvo.moeda, busca: '', ordem: 'baratos', criterios: [], elementos: [], categoria: '',
-      soShiny: true, soP5: false, soMega: false, soLendario: false, soTmElemental: false, soTmAoe: false, semOutland: false, pagina: 0, especieId: 0 }, aba: null }
+  // shiny e diamante vêm da vitrine (a mesma consulta das abas do jogo); item, do painel do item
+  consulta: (alvo) => (alvo.tipo === 'shiny' || alvo.tipo === 'diamante'
+    ? { pedido: { t: 'market.listar', tipo: alvo.tipo === 'diamante' ? 'diamante' : 'pokemon', moeda: alvo.moeda, busca: '', ordem: 'baratos', criterios: [], elementos: [], categoria: '',
+      soShiny: alvo.tipo === 'shiny', soP5: false, soMega: false, soLendario: false, soTmElemental: false, soTmAoe: false, semOutland: false, pagina: 0, especieId: 0 }, aba: null }
     : { pedido: { t: 'market.item', itemId: Number(alvo.itemId), moeda: alvo.moeda }, aba: 'item' }),
   anuncios: (linhas, alvo) => linhas.map(anuncioDe).filter((a) => (alvo.tipo === 'shiny' ? a.shiny : true)),
   nomes: nomesDosItens,
@@ -457,6 +493,21 @@ module.exports = {
 
 if (require.main === module) {
   const assert = require('node:assert');
+  const mem = new Map();
+  assert.strictEqual(resultadoDoMercado({ k: 'mktSorteio', id: 7, fase: 'entrou', quem: ['A', 'B'], total: 2 }, mem).detalhe, '🎲 No sorteio (2 na disputa)');
+  assert.strictEqual(resultadoDoMercado({ k: 'mktSorteio', id: 7, fase: 'lista', quem: ['C'], levaram: [{ nick: 'C' }] }, mem), null);
+  assert.deepStrictEqual(resultadoDoMercado({ k: 'mktSorteio', id: 7, fase: 'fim', perdeu: true }, mem),
+    { id: 7, tipo: 'perdido', detalhe: '❌ Perdeu para C (3 na disputa, nada cobrado)', descricao: '', sorteio: false });
+  assert.strictEqual(mem.size, 0);
+  assert.strictEqual(resultadoDoMercado({ k: 'mktSorteio', id: 8, fase: 'fim', ok: true }, mem).tipo, 'comprado');
+  assert.strictEqual(sniper.consulta({ tipo: 'diamante', moeda: 'orb' }).pedido.tipo, 'diamante');
+  assert.strictEqual(sniper.consulta({ tipo: 'diamante', moeda: 'orb' }).pedido.soShiny, false);
+  // formato real (capturado em 20/10/2026): aviso sem o id do anúncio
+  assert.strictEqual(resultadoDoMercado({ k: 'aviso', msg: 'market.sorteio' }, mem).tipo, 'tentando');
+  assert.deepStrictEqual(resultadoDoMercado({ k: 'aviso', msg: 'market.sorteioPerdeu' }, mem),
+    { id: undefined, tipo: 'perdido', detalhe: '❌ Outro jogador levou no sorteio (nada cobrado)', descricao: '', sorteio: false });
+  assert.strictEqual(resultadoDoMercado({ k: 'aviso', msg: 'hunt.qualquer' }, mem), null);
+  assert.strictEqual(resultadoDoMercado({ k: 'marketComprado', id: 9, sorteio: true, descricao: '1× Bronze Boss Token' }, mem).detalhe, '✅ Comprado no sorteio');
   assert.deepStrictEqual(sniper.catalogo({ 70013: { minOrb: 136 }, 999: { minGold: 5 } }, [[70013, 'Bicycle Fragment']]),
     [{ itemId: 70013, nome: 'Bicycle Fragment', minOrb: 136, minGold: null }, { itemId: 999, nome: 'Item 999', minOrb: null, minGold: 5 }]);
   const c = montar({
