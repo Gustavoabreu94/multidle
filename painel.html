@@ -121,6 +121,11 @@ a{color:#b48cff}
 table.depot input[type=number]{width:110px}
 .sniper-registro{font-size:12px;font-family:Consolas,monospace;background:#1d1421;border:1px solid #4a3550;border-radius:8px;padding:6px 8px;min-height:140px;max-height:260px;overflow:auto;flex:none}
 .sniper-registro td{white-space:nowrap}.sniper-registro td:last-child{white-space:normal}
+/* Aviso na barra de cima (as contas abertas cobrem o resto da tela, a barra não) */
+.notificacao{background:#1f5c35;color:#d9ffe4;border:1px solid #3fa462;border-radius:14px;padding:3px 12px;font-size:13px;margin-right:6px;max-width:46vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;-webkit-app-region:no-drag}
+.selo-n{background:#3fa462;color:#fff;border-radius:9px;font-size:11px;padding:0 5px;margin-left:4px}
+#modal.compras{width:min(760px,94%)}
+#modal.compras #modal-corpo{overflow:auto;padding:10px 14px}
 </style>
 </head>
 <body>
@@ -130,10 +135,14 @@ table.depot input[type=number]{width:110px}
     <button id="voltar" hidden>← Painel</button>
     <button id="todas">Mostrar todas</button>
     <button id="esconder">Esconder todas</button>
+    <button id="resetar-todas" title="Zera a sessão de todas as contas (XP, lucro, abates...), como o Reset de cada cartão">&#x21BA; Resetar todas</button>
+    <button id="recarregar-todas" title="Recarrega o jogo de todas as contas (como o F5), uma de cada vez: ajuda quando as telas travam no carregamento">&#x27F3; Recarregar contas</button>
     <span id="novas" class="acoes" style="flex:none"></span>
   </span>
   <button id="atualizar" class="atualizar" hidden></button>
+  <span id="notificacao" class="notificacao" hidden></span>
   <button id="sniper" class="apoiar" title="Sniper do Mercado: compra anúncios abaixo do preço que você definir">&#x1F3AF; Sniper</button>
+  <button id="compras" class="apoiar" title="Compras do Sniper">&#x1F514;<span id="compras-n" class="selo-n" hidden></span></button>
   <button id="lives" class="apoiar" title="Lives com bônus de XP" hidden>&#x1F4FA; Lives</button>
   <button id="apoiar" class="apoiar" title="Apoie o Multidle (opcional)">&#x2665; Apoiar</button>
   <span class="ctl">
@@ -147,7 +156,7 @@ table.depot input[type=number]{width:110px}
 <script>
 // Cartão que cada módulo de jogo devolve (jogos/*.js, função montar):
 // { nome, subtitulo, tempo, estado?: {texto, nivel: ok|alerta, dica, extra}, alerta, dicaSemKpis?, bonus?: [{rot, v}], selos: [{rot, v, cor}], kpis: [{rot, v, h, sub, cor}],
-//   blocos: [{titulo, largo?, vazio?, etiqueta?: {rot, n}, itens?: [{ico, n, nome, destaque?, apagado?}],
+//   blocos: [{titulo, largo?, vazio?, etiqueta?: {rot, n}, itens?: [{ico ou rot, n, nome, destaque?, apagado?}],
 //             linhas?: [{esq, meio?, dir, destaque?}]}], pronto, ferramenta }
 // Apoio (opcional): troque `pix` pela chave do projeto (de preferência aleatória)
 const APOIO = {
@@ -199,7 +208,7 @@ const kpi = (k) => `<div class="kpi"><div class="rot">${esc(k.rot)}</div><div cl
 function bloco(b) {
   const etiqueta = b.etiqueta ? `<span class="chip">${esc(b.etiqueta.rot)} <b>${num(b.etiqueta.n)}</b></span>` : '';
   const itens = (b.itens || []).map((i) => `<span class="item ${i.destaque ? 'destaque' : ''} ${i.apagado ? 'apagado' : ''}" title="${esc(i.nome)}">`
-    + `<img src="${esc(i.ico)}" alt="">${num(i.n)}</span>`).join('');
+    + `${i.ico ? `<img src="${esc(i.ico)}" alt="">` : `<span class="fraco">${esc(i.rot)}</span>`}${num(i.n)}</span>`).join(''); // sem imagem (ex.: shiny): o rótulo
   const linhas = (b.linhas || []).map((l) => `<div class="linha ${l.destaque ? 'destaque' : ''}">`
     + `<span>${l.destaque ? '★ ' : ''}${esc(l.esq)} <span class="fraco">${esc(l.meio)}</span></span><span class="fraco">${esc(l.dir)}</span></div>`).join('');
   const conteudo = etiqueta || itens ? `<div class="chips">${etiqueta}${itens}</div>` : linhas || `<div class="vazio">${esc(b.vazio)}</div>`;
@@ -251,7 +260,8 @@ function render() {
       + (c.pronto && jogo?.depot ? `<button data-depot="${esc(c.conta)}" title="Ver o Depot, guardar na Coleção e vender o resto">Depot</button>` : '');
     const bts = `<span class="bts">${acoes}${ferramenta}` + (aberta
       ? `<button data-max="${esc(c.conta)}" title="Ocupar o programa todo">&#x2922;</button><button data-fechar="${esc(c.conta)}" title="Esconder">&#x2013;</button>`
-      : `<button class="remover" data-remover="${esc(c.conta)}" title="Remover esta conta do Multidle">&#x2715;</button>`) + '</span>';
+      : (c.pronto ? `<button data-max="${esc(c.conta)}" title="Abrir já ocupando o programa todo">&#x2922;</button>` : '')
+        + `<button class="remover" data-remover="${esc(c.conta)}" title="Remover esta conta do Multidle">&#x2715;</button>`) + '</span>';
     // Estado da caça: "Caçando" ou "Parado" (borda vermelha); o motivo do jogo fica na dica
     const estado = c.estado && c.pronto
       ? `<span class="estado ${esc(c.estado.nivel)}" title="${esc(c.estado.dica)}">${esc(c.estado.texto)}`
@@ -288,7 +298,23 @@ $('#t').addEventListener('click', (e) => {
 $('#voltar').onclick = () => { maximizada = null; layout(); };
 window.api.aoVoltar(() => { maximizada = null; layout(); });
 $('#todas').onclick = () => { maximizada = null; contas.forEach((c) => abertas.add(c.conta)); render(); };
+// O Reset de cada cartão, em todas as contas prontas, com uma confirmação só
+$('#resetar-todas').onclick = async (e) => {
+  const alvo = contas.filter((c) => c.pronto && jogoDe(c.jogo)?.acoes?.some((a) => a.id === 'reset'));
+  if (!alvo.length || !confirm(`Zerar a sessão de ${alvo.length} conta(s)? XP, lucro, abates, capturas e achados da sessão voltam a 0 (as contas e os itens não mudam).`)) return;
+  e.target.disabled = true;
+  for (const c of alvo) await window.api.acao(c.conta, 'reset');
+  e.target.disabled = false;
+};
 $('#esconder').onclick = () => { maximizada = null; abertas.clear(); render(); };
+// Recarrega o jogo de todas as contas (como o F5), uma de cada vez
+$('#recarregar-todas').onclick = async (e) => {
+  if (!contas.length || !confirm(`Recarregar o jogo de ${contas.length} conta(s)? Uma de cada vez, leva alguns segundos por conta. As contas continuam logadas.`)) return;
+  const b = e.target;
+  b.disabled = true; b.textContent = 'Recarregando...';
+  await window.api.recarregarContas();
+  b.disabled = false; b.innerHTML = '&#x27F3; Recarregar contas';
+};
 
 // Venda do Depot: o jogo abre a confirmação dele (escondida), o Multidle mostra o que ela diz e a
 // resposta do usuário vai para ela. Nada é vendido sem o "OK" aqui.
@@ -303,12 +329,12 @@ async function venderDepot(conta, botao) {
   const valiosos = r.valiosos?.length ? `\n\n⚠ ATENÇÃO: o lote inclui ${r.valiosos.length} shiny/P5:\n- ${r.valiosos.join('\n- ')}` : '';
   const filtro = /filtr/i.test(r.titulo) ? '\n\n(O Depot está com filtro: vende só o que passa no filtro.)' : '';
   const sim = confirm(`${c.nome || conta} — ${r.titulo}\n\n${r.info}${filtro}${valiosos}\n\nA Coleção fica de fora. Não dá para desfazer. Vender?`);
-  await window.api.vendaConcluir(conta, sim);
+  return (await window.api.vendaConcluir(conta, sim)) && sim;
 }
 
 // Depot: lista com os dados da ficha (do melhor para o pior pela nota), "→ Coleção" em cada um (sai da
 // venda) e "Vender o resto" pela confirmação do jogo
-async function abrirDepot(conta) {
+async function abrirDepot(conta, aposVenda = false) {
   const c = contas.find((x) => x.conta === conta);
   abrirModal(`Depot · ${c.nome || conta}`, '<div class="fraco">Lendo o Depot (abre a ficha de cada Pokémon, alguns segundos)...</div>', true);
   $('#modal').classList.add('depot');
@@ -319,6 +345,8 @@ async function abrirDepot(conta) {
   if (r.erro) return void ($('#modal-corpo').innerHTML = `<div class="neg">${esc(r.erro)}</div>`);
   const num = (s) => Number(String(s).replace(/\./g, '').replace(',', '.')) || 0;
   const lista = r.lista.sort((a, b) => num(b.nota) - num(a.nota));
+  // vendeu tudo: não sobrou Pokémon para mostrar, fecha o Depot
+  if (aposVenda && !lista.length) { modal = null; layout(); return notificar(`${c.nome || conta}: Depot vendido, nenhum Pokémon sobrou.`); }
   const linhas = lista.map((p) => `<tr data-chave="${esc(p.chave)}">`
     + `<td>${p.shiny ? '✨ ' : ''}<b>${esc(p.nome)}</b> <span class="fraco">Nv${esc(p.nv)}</span>${p.novo ? ' <span class="pos">novo</span>' : ''}</td>`
     + `<td class="${p.potencia === 'P5' ? 'pos' : ''}">${esc(p.potencia)}</td><td>${esc(p.iv)}</td><td>${esc(p.qualidade)}</td>`
@@ -336,7 +364,7 @@ async function abrirDepot(conta) {
       b.textContent = ok ? 'Na Coleção ✓' : 'Não deu';
       b.closest('tr').classList.toggle('guardado', ok);
     }
-    if (b?.id === 'depot-vender') { await venderDepot(conta, b); abrirDepot(conta); } // relê depois da venda
+    if (b?.id === 'depot-vender' && await venderDepot(conta, b)) abrirDepot(conta, true); // relê depois da venda
   };
 }
 
@@ -357,7 +385,7 @@ function abrirModal(titulo, html, pequeno) {
   $('#modal-titulo').textContent = titulo;
   $('#modal-corpo').innerHTML = html;
   $('#modal').classList.toggle('pequeno', pequeno);
-  $('#modal').classList.remove('lives', 'depot', 'sniper');
+  $('#modal').classList.remove('lives', 'depot', 'sniper', 'compras');
   $('#modal-corpo').onclick = null; // o clique do modal anterior (ex.: Depot) não vale para o próximo
 }
 
@@ -442,7 +470,8 @@ function desenharSniper() {
       <label title="Máximo que cada conta gasta por dia (ouro conta convertido)">Teto/dia por conta <input type="number" id="sn-teto" min="0" value="${esc(c.tetoDiaConta)}" style="width:70px"> Gemas</label>
     </div>
     <div class="fraco">Cada anúncio é disputado por UMA conta só (a com mais saldo). Consulta a cada ${esc(c.intervaloS)} s, revezando as contas.</div>
-    <table class="depot"><tr><th><input type="checkbox" id="sn-todos" title="Ativar ou desativar todos os alvos" ${c.alvos.length && c.alvos.every((a) => a.ativo) ? 'checked' : ''}></th><th>Alvo</th><th>Moeda</th><th>Preço máx.</th><th>Máx./dia</th><th>Hoje</th><th>Menor no Mercado</th></tr>
+    <div class="lives-barra"><button id="sn-ativar-todos">Ativar todos</button><button id="sn-desativar-todos">Desativar todos</button></div>
+    <table class="depot"><tr><th></th><th>Alvo</th><th>Moeda</th><th>Preço máx.</th><th>Máx./dia</th><th>Hoje</th><th>Menor no Mercado</th></tr>
     ${c.alvos.map((a) => `<tr data-alvo="${esc(a.id)}"><td><input type="checkbox" data-campo="ativo" ${a.ativo ? 'checked' : ''}></td>
       <td>${esc(a.nome)}</td><td>${esc(s.moedas[a.moeda] ?? a.moeda)}</td>
       <td><input type="number" min="0" data-campo="precoMax" value="${esc(a.precoMax)}"></td>
@@ -476,14 +505,18 @@ function desenharSniper() {
   });
   const salvarERedesenhar = (alvos) => { redesenharSniper = true; window.api.sniperSalvar({ alvos }); };
   $('#modal-corpo').onchange = (e) => {
-    if (e.target.id === 'sn-todos') document.querySelectorAll('tr[data-alvo] [data-campo="ativo"]').forEach((x) => { x.checked = e.target.checked; });
-    else if (!e.target.dataset.campo) return;
-    window.api.sniperSalvar({ alvos: lerTabela() });
+    if (e.target.dataset.campo) window.api.sniperSalvar({ alvos: lerTabela() });
   };
   $('#modal-corpo').onclick = (e) => {
     const id = e.target.dataset?.remover;
     if (id) salvarERedesenhar(lerTabela().filter((a) => a.id !== id));
   };
+  const marcarTodos = (ativo) => {
+    document.querySelectorAll('tr[data-alvo] [data-campo="ativo"]').forEach((x) => { x.checked = ativo; });
+    window.api.sniperSalvar({ alvos: lerTabela() });
+  };
+  $('#sn-ativar-todos').onclick = () => marcarTodos(true);
+  $('#sn-desativar-todos').onclick = () => marcarTodos(false);
   $('#sn-historico').onclick = () => window.api.sniperHistorico();
   $('#sn-filtro').onchange = (e) => { if (e.target.dataset.f) { filtroHist[e.target.dataset.f] = e.target.value; mostrarHistorico(); } };
   $('#sn-filtro-limpar').onclick = () => { Object.assign(filtroHist, { conta: '', tipo: '', de: '', ate: '' }); desenharSniper(); };
@@ -522,6 +555,51 @@ window.api.aoSniper((s) => {
 });
 window.api.sniperPedir();
 $('#sniper').onclick = () => { window.api.sniperPedir(); desenharSniper(); };
+
+// Aviso verde na barra de cima por alguns segundos (compra do sniper, venda do Depot...)
+let tempoNotificacao = 0;
+function notificar(texto, ms = 10000) {
+  const el = $('#notificacao');
+  el.textContent = texto;
+  el.title = texto;
+  el.hidden = false;
+  clearTimeout(tempoNotificacao);
+  tempoNotificacao = setTimeout(() => { el.hidden = true; }, ms);
+}
+$('#notificacao').onclick = () => { $('#notificacao').hidden = true; };
+
+// Compras do Sniper: aviso na hora e o sino com as que ainda não foram vistas
+let comprasNaoVistas = 0;
+const mostrarSino = () => { $('#compras-n').hidden = !comprasNaoVistas; $('#compras-n').textContent = comprasNaoVistas; };
+const precoDaCompra = (l) => (l.preco != null ? `${l.preco.toLocaleString('pt-BR')} ${l.moeda}` : '');
+window.api.sniperCompras().then(({ compras, vistoEm }) => {
+  comprasNaoVistas = compras.filter((l) => (l.mudouEm ?? l.em) > vistoEm).length;
+  mostrarSino();
+});
+window.api.aoSniperComprado((l) => {
+  comprasNaoVistas++;
+  mostrarSino();
+  notificar(`✅ Comprado: ${l.item ? `${l.qtd}× ${l.item} por ${precoDaCompra(l)}` : l.texto}${l.conta ? ` · ${l.conta}` : ''}`);
+  if (modal === 'compras') abrirCompras();
+});
+async function abrirCompras() {
+  const { compras } = await window.api.sniperCompras();
+  const quando = (l) => new Date(l.mudouEm ?? l.em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  // compras antigas ou feitas à mão no jogo só têm o texto
+  const linhas = compras.map((l) => `<tr><td>${esc(quando(l))}</td><td>${esc(l.conta ?? '')}</td><td>${esc(l.item ?? l.texto)}</td>`
+    + `<td>${l.qtd ?? '—'}</td><td>${esc(precoDaCompra(l) || '—')}</td>`
+    + `<td>${l.preco != null ? esc(`${(l.preco * l.qtd).toLocaleString('pt-BR')} ${l.moeda}`) : '—'}</td></tr>`).join('');
+  abrirModal('Compras do Sniper', compras.length
+    ? `<table class="depot"><thead><tr><th>Quando</th><th>Conta</th><th>Item</th><th>Qtd</th><th>Preço un.</th><th>Total</th></tr></thead><tbody>${linhas}</tbody></table>`
+    : '<div class="fraco">Nenhuma compra do Sniper ainda.</div>', false);
+  $('#modal').classList.add('compras');
+  modal = 'compras';
+  layout();
+  comprasNaoVistas = 0;
+  mostrarSino();
+  window.api.sniperComprasVisto();
+}
+$('#compras').onclick = abrirCompras;
 
 $('#apoiar').onclick = () => {
   const pix = APOIO.pix

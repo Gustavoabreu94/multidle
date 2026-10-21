@@ -1,7 +1,7 @@
 {
   "name": "multidle",
   "productName": "Multidle",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Várias contas de jogos idle numa janela só, com um painel de resumo por conta",
   "license": "MIT",
@@ -9,7 +9,8 @@
   "scripts": {
     "start": "electron .",
     "test": "node jogos/pokeidle.js",
-    "dist": "npm test && electron-builder --win nsis"
+    "dist": "npm test && electron-builder --win nsis",
+    "dist:store": "npm test && electron-builder --win appx --publish never"
   },
   "devDependencies": {
     "electron": "^33.2.1",
@@ -41,6 +42,17 @@
       "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
+    },
+    "appx": {
+      "applicationId": "Multidle",
+      "displayName": "Multidle",
+      "identityName": "Multidle.Teste",
+      "publisher": "CN=Multidle-Teste",
+      "publisherDisplayName": "Gustavoabreu94",
+      "artifactName": "Multidle-Store-${version}.${ext}",
+      "languages": [
+        "pt-BR"
+      ]
     }
   },
   "allowScripts": {

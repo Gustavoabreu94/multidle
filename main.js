@@ -174,8 +174,16 @@ function criarView({ id, jogo: jogoId }) {
   // A conta começa fora da janela: só entra quando for mostrada (ver 'layout')
   const v = new WebContentsView({ webPreferences: { partition: `persist:${id}` } });
   const wc = v.webContents;
+  v.setBackgroundColor('#1f1523'); // enquanto o jogo não desenha, o fundo do Multidle (não o branco do navegador)
+  atalhoMaximizar(wc);
   wc.setAudioMuted(true);
   wc.on('did-finish-load', () => { wc.setZoomFactor(ZOOM); setTimeout(coletar, 3000); });
+  // Tela branca: a página da conta caiu (ex.: falta de memória) ou o carregamento falhou (rede caiu no
+  // meio do F5/atualização do jogo). Nos dois casos ela não volta sozinha: recarrega (com uma pausa)
+  wc.on('render-process-gone', (_e, d) => { if (d.reason !== 'clean-exit') setTimeout(() => !wc.isDestroyed() && wc.reload(), 2000); });
+  wc.on('did-fail-load', (_e, codigo, _desc, url, principal) => {
+    if (principal && codigo !== -3 && url.startsWith(jogo.url)) setTimeout(() => !wc.isDestroyed() && wc.loadURL(jogo.url), 5000); // -3 = carregamento trocado por outro
+  });
 
   // Links que saem do jogo (Twitch, Kick...) abrem numa janela à parte com o mesmo login;
   // o login do Google vai para o navegador; o resto do jogo fica aqui
@@ -236,12 +244,15 @@ ipcMain.on('layout', (_e, mapa) => {
   for (const [id, v] of views) {
     const r = mapa[id];
     if (r) {
-      if (!naJanela.has(id)) {
+      const antes = naJanela.has(id) ? v.getBounds() : null;
+      if (!antes) {
         if (id.startsWith(LIVE)) janelaLives?.contentView.removeChildView(v); // sai da janela invisível
         win.contentView.addChildView(v);
         naJanela.add(id);
       }
       v.setBounds(r);
+      // ao entrar na janela ou mudar de tamanho (ver garantirQuadros)
+      if (jogoDe(id) && (!antes || antes.width !== r.width || antes.height !== r.height)) garantirQuadros(id, v);
     } else if (naJanela.delete(id)) {
       win.contentView.removeChildView(v);
       if (id.startsWith(LIVE)) { guardarLive(v); continue; } // live escondida volta para a janela invisível
@@ -251,6 +262,19 @@ ipcMain.on('layout', (_e, mapa) => {
   }
   if (mapa[VOLTAR]) win.contentView.addChildView(views.get(VOLTAR)); // reposiciona por cima da conta maximizada
 });
+// Às vezes a conta volta para a janela e o Chromium não manda mais quadros para ela: fica só o fundo azul
+// do jogo, parada (testado: a página diz "visible" e desenha 0 quadros/s; tirar e pôr na janela destrava).
+// Ao entrar, confere se a página desenha; se não, tira e põe de novo (até 3 vezes).
+const DESENHANDO = `new Promise((ok) => { let n = 0; requestAnimationFrame(function f() { if (++n < 3) requestAnimationFrame(f); else ok(true); }); setTimeout(() => ok(false), 1000); })`;
+async function garantirQuadros(id, v, tentativa = 1) {
+  const wc = v.webContents;
+  const desenhando = await wc.executeJavaScript(DESENHANDO).catch(() => true);
+  if (desenhando || wc.isDestroyed() || !naJanela.has(id) || tentativa > 3) return;
+  win.contentView.removeChildView(v);
+  win.contentView.addChildView(v);
+  if (naJanela.has(VOLTAR)) win.contentView.addChildView(views.get(VOLTAR)); // o "Voltar ao painel" fica por cima
+  setTimeout(() => garantirQuadros(id, v, tentativa + 1), 300);
+}
 // Botão "Voltar ao painel" por cima da conta maximizada: a página do jogo cobre o painel, então o
 // botão é uma área própria (pequena e transparente) posta acima dela, no centro do topo
 const VOLTAR = '__voltar';
@@ -266,9 +290,14 @@ function criarBotaoVoltar() {
   views.set(VOLTAR, v);
 }
 
+const alternarMaximizar = () => (win.isMaximized() ? win.unmaximize() : win.maximize());
+// F11 maximiza/restaura a janela, com o foco no painel ou dentro de uma conta
+const atalhoMaximizar = (wc) => wc.on('before-input-event', (e, tecla) => {
+  if (tecla.type === 'keyDown' && tecla.key === 'F11') { e.preventDefault(); alternarMaximizar(); }
+});
 ipcMain.on('janela', (_e, acao) => {
   if (acao === 'min') win.minimize();
-  if (acao === 'max') win.isMaximized() ? win.unmaximize() : win.maximize();
+  if (acao === 'max') alternarMaximizar();
   if (acao === 'fechar') win.close();
 });
 ipcMain.handle('jogos', () => Object.values(JOGOS).map(({ id, nome, maxContas, avisoLimite, ferramenta, apoioTerceiros, acoes, venda }) => ({
@@ -290,7 +319,8 @@ ipcMain.handle('venda-preparar', async (_e, id) => {
 ipcMain.handle('venda-concluir', async (_e, id, vender) => {
   const venda = jogoDe(id)?.venda;
   if (!venda) return false;
-  const ok = await views.get(id).webContents.executeJavaScript(`(${venda.concluir})(${vender ? 'true' : 'false'})`).catch(() => false);
+  // sem desaceleração: depois do Sim, espera o jogo redesenhar o Depot
+  const ok = (await rodarSemDesacelerar(id, `(${venda.concluir})(${vender ? 'true' : 'false'})`)) === true;
   setTimeout(coletar, 1500);
   return ok;
 });
@@ -311,6 +341,16 @@ ipcMain.handle('depot-guardar', async (_e, id, chave) => {
   return views.get(id).webContents.executeJavaScript(`(${depot.guardar})(${JSON.stringify(chave)})`).catch(() => false);
 });
 
+// Recarrega o jogo de cada conta (como o F5), uma por vez: a próxima só começa quando a anterior terminou
+// de carregar (ou depois de 20 s), para não pesar a máquina com todas carregando juntas
+ipcMain.handle('recarregar-contas', async () => {
+  for (const c of contas) {
+    const wc = views.get(c.id)?.webContents;
+    if (!wc || wc.isDestroyed()) continue;
+    await new Promise((ok) => { const t = setTimeout(ok, 20_000); wc.once('did-stop-loading', () => { clearTimeout(t); ok(); }); wc.reload(); });
+  }
+  setTimeout(coletar, 3000);
+});
 // Ação do jogo numa conta (ex.: RESET da sessão), mesmo com a conta escondida
 ipcMain.handle('acao', async (_e, id, acaoId) => {
   const acao = jogoDe(id)?.acoes?.find((a) => a.id === acaoId);
@@ -344,11 +384,12 @@ ipcMain.on('remover', async (_e, id) => {
 ipcMain.on('entrar', (_e, id) => entrar(id));
 
 // Atualização automática pelas releases do GitHub: baixa em segundo plano, avisa no painel e instala
-// ao clicar no aviso (ou ao fechar o programa). Só na versão instalada.
+// ao clicar no aviso (ou ao fechar o programa). Só na versão instalada pelo instalador: a da Microsoft
+// Store é atualizada pela própria Store (regra da loja).
 const VERIFICAR_ATUALIZACAO_MS = 6 * 3600_000;
 let versaoBaixada = null;
 function vigiarAtualizacoes() {
-  if (!app.isPackaged) return;
+  if (!app.isPackaged || process.windowsStore) return;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('update-downloaded', ({ version }) => {
     versaoBaixada = version;
@@ -612,8 +653,20 @@ function registrar(texto, extra = {}) {
   if (registroSniper.length > 5000) registroSniper.shift();
   gravarLinha(linha);
   enviarSniper();
+  if (linha.tipo === 'comprado') avisarCompra(linha);
   return linha;
 }
+// Compra feita: o painel mostra na hora (verde, ao lado do Sniper) e conta no sino das compras
+const avisarCompra = (linha) => win?.webContents.send('sniper-comprado', linha);
+// Compras de antes da 0.3.2 só têm o texto ("6× Bronze Boss Token por 4 Gemas (de Fulano)"): as colunas saem dele
+const colunasDoTexto = (l) => {
+  if (l.item) return l;
+  const m = /^(\d+)× (.+) por ([\d.,]+) (.+?) \(de .+\)$/.exec(l.texto ?? '');
+  return m ? { ...l, qtd: Number(m[1]), item: m[2], preco: numero(m[3]), moeda: m[4] } : l;
+};
+const comprasDoSniper = () => registroSniper.filter((l) => l.tipo === 'comprado').slice(-200).reverse().map(colunasDoTexto);
+ipcMain.handle('sniper-compras', () => ({ compras: comprasDoSniper(), vistoEm: config.sniperComprasVistoEm ?? 0 }));
+ipcMain.on('sniper-compras-visto', () => { config.sniperComprasVistoEm = Date.now(); salvarConfig(); });
 function atualizarLinha(linha, mudancas) {
   // A tentativa reserva no teto do dia (para várias ao mesmo tempo não passarem do limite); só a compra fica
   // contando: perdeu, não passou ou ficou sem resposta, a reserva volta
@@ -623,9 +676,11 @@ function atualizarLinha(linha, mudancas) {
     if (g) { g.conta[r.conta] = Math.max(0, (g.conta[r.conta] ?? 0) - r.gemas); g.alvo[linha.alvo] = Math.max(0, (g.alvo[linha.alvo] ?? 0) - r.qtd); salvarConfig(); }
     delete linha.reserva;
   }
+  const comprou = mudancas.tipo === 'comprado' && linha.tipo !== 'comprado';
   Object.assign(linha, mudancas, { mudouEm: Date.now() });
   gravarLinha(linha);
   enviarSniper();
+  if (comprou) avisarCompra(linha);
 }
 const tentativas = new Map(); // id do anúncio -> linha da tentativa ainda sem resultado
 const numero = (v) => Number(String(v ?? '').replace(/\./g, '').replace(',', '.')) || 0;
@@ -635,6 +690,9 @@ const emGemas = (valor, moeda) => (moeda === 'gold' ? valor / (jogoComSniper().s
 const nomeDe = (id) => ultimosCartoes.get(id)?.nome || id;
 const enviarSniper = () => win?.webContents.send('sniper', { cfg: cfgSniper(), gasto: gastos(), moedas: jogoComSniper().sniper.moedas,
   ouroPorGema: jogoComSniper().sniper.ouroPorGema, nomes: Object.fromEntries(contas.map((c) => [c.id, nomeDe(c.id)])) });
+// Tentativas que ficaram sem resultado porque o Multidle fechou no meio: o resultado não chega mais, então
+// fecham como sem resposta (e devolvem a reserva do dia)
+for (const l of registroSniper) if (l.tipo === 'tentando') atualizarLinha(l, { tipo: 'erro', detalhe: '⚠ Sem resposta (o Multidle fechou antes do resultado)' });
 
 const tentados = new Set(); // anúncios já tratados (agendados, simulados ou sem saldo)
 let rodandoSniper = false;
@@ -670,7 +728,9 @@ function agendarCompra(alvo, a, desvio, prontas) {
   // O pedido sai 0,3 s depois do fim da retenção, no relógio do servidor (dentro da janela de 3 s do sorteio)
   const espera = Math.max(0, a.compravelEm + (desvio || 0) + 300 - Date.now());
   const quando = new Date(Date.now() + espera).toLocaleTimeString('pt-BR');
-  const base = { alvo: alvo.id, conta: nomeDe(conta.id) };
+  // item, quantidade e preço separados para a lista de compras (o texto junta tudo)
+  const base = { alvo: alvo.id, conta: nomeDe(conta.id), item: `${a.shiny ? '✨ ' : ''}${a.nome || alvo.nome}${a.nivel ? ` Nv${a.nivel}` : ''}`,
+    qtd, preco: a.preco, moeda: jogoComSniper().sniper.moedas[a.moeda] ?? a.moeda };
   if (s.simulacao) return registrar(`${qtd}× ${descricao}`, { ...base, tipo: 'simulado', detalhe: `🧪 Simulação: compraria às ${quando}` });
   // sem resultado em 90 s depois da liberação, a linha avisa (ver rodarSniper)
   const linha = registrar(`${qtd}× ${descricao}`, { ...base, anuncio: a.id, tipo: 'tentando', detalhe: `⏳ Tentando (libera às ${quando})`, ate: Date.now() + espera + 90_000,
@@ -720,8 +780,12 @@ async function rodarSniper() {
       atualizarLinha(linha, { tipo: 'erro', detalhe: '⚠ Sem resposta do jogo (confira no Mercado)' });
     }
     const nossos = new Set(prontas.map((c) => nomeDe(c.id)));
+    // A resposta da consulta também chega à tela do jogo (o Mercado aberto troca de item): consulta pelas
+    // contas escondidas, e pela que está na tela só se todas estiverem abertas
+    const escondidas = prontas.filter((c) => !naJanela.has(c.id));
+    const paraConsultar = escondidas.length ? escondidas : prontas;
     for (const alvo of s.alvos.filter((a) => a.ativo)) {
-      const consultora = prontas[giro++ % prontas.length]; // a consulta revesa entre as contas
+      const consultora = paraConsultar[giro++ % paraConsultar.length]; // a consulta revesa entre as contas escondidas
       const j = JOGOS[consultora.jogo].sniper;
       const { pedido, aba } = j.consulta(alvo);
       const r = await rodarSemDesacelerar(consultora.id, `(${j.consultar})(${JSON.stringify(pedido)}, ${JSON.stringify(aba)})`);
@@ -750,7 +814,8 @@ ipcMain.handle('sniper-registro', (_e, f = {}) => registroSniper
   .slice(-500).reverse());
 // Itens à venda agora, com nome, para a tela escolher um alvo novo
 ipcMain.handle('sniper-catalogo', async () => {
-  const c = contas.find((x) => JOGOS[x.jogo].sniper && ultimosCartoes.get(x.id)?.pronto);
+  const prontas = contas.filter((x) => JOGOS[x.jogo].sniper && ultimosCartoes.get(x.id)?.pronto);
+  const c = prontas.find((x) => !naJanela.has(x.id)) ?? prontas[0]; // de preferência uma escondida (ver rodarSniper)
   if (!c) return { erro: 'Nenhuma conta carregada para consultar o Mercado.' };
   const j = JOGOS[c.jogo].sniper;
   const r = await rodarSemDesacelerar(c.id, `(${j.consultar})(${JSON.stringify(j.pedidoItens)}, 'itens')`);
@@ -785,14 +850,31 @@ if (!app.requestSingleInstanceLock()) {
       webPreferences: { preload: path.join(__dirname, 'preload.js') },
     });
     win.on('closed', () => app.quit());
-    win.on('maximize', () => win.webContents.send('maximizada', true));
-    win.on('unmaximize', () => win.webContents.send('maximizada', false));
+    // abre como estava da última vez (maximizado ou não)
+    if (config.maximizada) win.maximize();
+    win.webContents.on('did-finish-load', () => win.webContents.send('maximizada', win.isMaximized())); // ícone certo ao abrir
+    atalhoMaximizar(win.webContents);
+    for (const [ev, max] of [['maximize', true], ['unmaximize', false]]) {
+      win.on(ev, () => { win.webContents.send('maximizada', max); config.maximizada = max; salvarConfig(); });
+    }
     // Links do painel (Apoiar, repositório) abrem no navegador do sistema, nunca dentro do app
     win.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https:\/\//.test(url)) shell.openExternal(url);
       return { action: 'deny' };
     });
-    win.loadFile(path.join(__dirname, 'painel.html'));
+    // Ajuste visual ao vivo: com "painelDev" (pasta do projeto) no config.json, o painel vem de lá e
+    // recarrega sozinho quando o painel.html é salvo. Só o painel recarrega: as contas seguem rodando.
+    const pastaPainel = config.painelDev || __dirname;
+    win.loadFile(path.join(pastaPainel, 'painel.html'));
+    if (config.painelDev) {
+      let espera;
+      fs.watch(pastaPainel, (_ev, nome) => {
+        if (nome !== 'painel.html') return;
+        clearTimeout(espera);
+        espera = setTimeout(() => win.webContents.reload(), 300); // o editor salva em mais de uma escrita
+      });
+      win.webContents.on('did-finish-load', () => setTimeout(coletar, 300)); // cartões de volta sem esperar o ciclo
+    }
 
     // contas.json do PokeIdle x4 era só a lista de nomes (todas do PokeIdle)
     contas = (fs.existsSync(ARQ_CONTAS) ? JSON.parse(fs.readFileSync(ARQ_CONTAS, 'utf8')) : [])

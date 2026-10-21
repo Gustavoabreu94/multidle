@@ -27,8 +27,10 @@ function extrair() {
     }));
   const moedas = { ouro: txt(document.getElementById('tr-gold')), diamantes: txt(document.getElementById('tr-diamantes')), gemas: txt(document.getElementById('tr-gemas')) };
   // Achados possíveis no lugar da hunt: o jogo esconde os que não caem ali (ex.: shiny na Outland)
+  // Os de shiny (vistos/pegos) não têm imagem: o ícone é um desenho do jogo, vai o rótulo no lugar
   const achados = [...document.querySelectorAll('#eco-achados .eco-slot')].filter((s) => !s.hidden)
-    .map((s) => ({ campo: s.dataset.campo, nome: s.title, ico: s.querySelector('img')?.src ?? '' }));
+    .map((s) => ({ campo: s.dataset.campo, nome: s.title, ico: s.querySelector('img')?.src ?? '',
+      ...(s.classList.contains('eco-slot-shiny') && { shiny: txt(s.querySelector('small')) }) }));
   const lugar = txt(document.querySelector('#eco-achados .eco-achados-lugar')).replace(/^·\s*/, '');
   // Estado da caça. Na hunt, o jogo calcula ao lado do relógio: cacando, parado (sem batalha há um
   // tempo), fora ou caindo (sem conexão). Fora da hunt esse painel some (testado: Pokémon no Centro
@@ -169,6 +171,9 @@ async function listarDepot() {
   await espera(400);
   const ficha = document.getElementById('ficha');
   if (!ficha.classList.contains('hidden')) return { erro: 'Há uma ficha aberta nesta conta. Abra a conta e feche-a.' };
+  // lê só com o Depot parado (o jogo pode estar redesenhando, ex.: logo depois de uma venda)
+  const chaves = () => [...document.querySelectorAll('#eco-cofre-corpo .eco-pk')].map((pk) => pk.dataset.chave).join();
+  for (let i = 0, antes = null; i < 15 && chaves() !== antes; i++) { antes = chaves(); await espera(200); }
   const lista = [];
   for (const pk of [...document.querySelectorAll('#eco-cofre-corpo .eco-pk')].slice(0, 80)) {
     const [nome, nv] = (pk.title || '').split(' · ');
@@ -181,9 +186,11 @@ async function listarDepot() {
     item.potencia = (texto.match(/POTÊNCIA (P\d)/i) ?? [])[1] ?? '';
     item.qualidade = selo('q');
     item.iv = selo('iv');
-    const nota = texto.match(/([\d,]+) \/ 10,0 ([A-ZÁÉÍÓÚÂÊÔÃÕÇ ]+?) (?:STATS|$)/);
-    item.nota = nota?.[1] ?? '';
-    item.faixa = (nota?.[2] ?? '').trim().toLowerCase();
+    // O texto da nota começa em 0,000 e anima até o valor (e com a conta escondida a animação nem
+    // anda): o valor final vem pronto em data-nota
+    const nota = Number(corpo.querySelector('.fi-nota-num[data-nota]')?.dataset.nota);
+    item.nota = Number.isFinite(nota) ? nota.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) : '';
+    item.faixa = txt(corpo.querySelector('.calc-nota-rotulo')).toLowerCase();
     item.shiny = /shiny|✨/i.test(txt(document.getElementById('ficha-titulo')) + txt(corpo.querySelector('.fi-nome')));
     lista.push(item);
     document.getElementById('ficha-fechar').click();
@@ -200,10 +207,16 @@ function moverParaColecao(chave) {
   return !!botao;
 }
 
-function concluirVenda(vender) {
+// Depois do Sim, espera o jogo redesenhar o Depot com a resposta do servidor (até 5 s): ler antes
+// disso pegava a lista no meio do redesenho (vazia ou ainda com os vendidos)
+async function concluirVenda(vender) {
+  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
   const caixa = document.getElementById('confirmar');
   if (caixa.classList.contains('hidden')) return false;
+  const lista = () => [...document.querySelectorAll('#eco-cofre-corpo .eco-pk')].map((pk) => pk.dataset.chave).join();
+  const antes = lista();
   document.getElementById(vender ? 'confirmar-sim' : 'confirmar-nao').click();
+  if (vender) for (let i = 0; i < 50 && lista() === antes; i++) await espera(100);
   return true;
 }
 
@@ -429,9 +442,11 @@ function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moe
         itens: itens.map((i) => ({ ico: i.ico, n: i.q, nome: i.nome + (i.usando ? ' · em uso automático' : ''), destaque: i.usando })) },
       // Todos os achados possíveis no lugar da hunt; os que ainda não caíram ficam apagados
       { titulo: lugar ? `Achados · ${lugar}` : 'Achados', etiqueta: { rot: 'Ouro', n: hunt?.gold ?? 0 },
-        itens: achados.filter((a) => doJogo(a.ico)).map((a) => {
+        itens: achados.filter((a) => a.shiny != null || doJogo(a.ico)).map((a) => {
           const n = Number(hunt?.[a.campo]) || 0;
-          return { ico: a.ico, n, nome: a.nome, apagado: !n };
+          return a.shiny != null
+            ? { rot: `✨ ${a.shiny}`, n, nome: a.nome, apagado: !n, destaque: n > 0 }
+            : { ico: a.ico, n, nome: a.nome, apagado: !n };
         }) },
       { titulo: 'Equipe', largo: true, vazio: 'Equipe não encontrada',
         linhas: equipe.map((p, i) => ({ esq: p.nome, meio: `Nv${p.nv}`, dir: `poder ${p.poder.toLocaleString('pt-BR')}`, destaque: i === 0 })) },
@@ -522,11 +537,13 @@ if (require.main === module) {
     ],
     moedas: { ouro: '207.596.603', diamantes: '5', gemas: '' },
     achados: [
+      { campo: 'shiniesVistos', nome: 'Shinies vistos', ico: '', shiny: 'vistos' },
+      { campo: 'shinies', nome: 'Shinies capturados', ico: '', shiny: 'pegos' },
       { campo: 'bossTokens', nome: 'Boss Tokens', ico: 'https://pokeidle.io/assets/site/assets/items/bronze_boss_token.png' },
       { campo: 'fragShiny', nome: 'Fragmento de Shiny Stone', ico: 'https://pokeidle.io/img/itens/shiny-stone.png' },
     ],
     lugar: 'Outland',
-    hunt: { gold: 2823982, fragShiny: 2 },
+    hunt: { gold: 2823982, fragShiny: 2, shiniesVistos: 1 },
   });
   assert.strictEqual(c.nome, 'Timoteo');
   assert.strictEqual(c.subtitulo, 'Ancient Pupitar · nível 150');
@@ -537,7 +554,8 @@ if (require.main === module) {
   assert.deepStrictEqual(mochilaB.itens.map((i) => i.n), [51356]);
   assert.strictEqual(achadosB.titulo, 'Achados · Outland');
   assert.strictEqual(achadosB.etiqueta.n, 2823982);
-  assert.deepStrictEqual(achadosB.itens.map((i) => [i.n, i.apagado]), [[0, true], [2, false]]);
+  assert.deepStrictEqual(achadosB.itens.map((i) => [i.rot ?? '', i.n, i.apagado]),
+    [['✨ vistos', 1, false], ['✨ pegos', 0, true], ['', 0, true], ['', 2, false]]); // shiny entra mesmo sem imagem
   assert.deepStrictEqual(equipeB.linhas.map((l) => [l.esq, l.destaque]), [['Golem', true], ['Charizard', false]]);
   assert.strictEqual(montar().pronto, false);
   assert.strictEqual(montar({ nick: '—' }).pronto, false);

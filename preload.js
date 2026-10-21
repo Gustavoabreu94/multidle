@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   atualizar: () => ipcRenderer.send('atualizar'),
   ferramenta: (jogo, conta) => ipcRenderer.invoke('ferramenta', jogo, conta),
   acao: (conta, acao) => ipcRenderer.invoke('acao', conta, acao),
+  recarregarContas: () => ipcRenderer.invoke('recarregar-contas'),
   vendaPreparar: (conta) => ipcRenderer.invoke('venda-preparar', conta),
   depotListar: (conta) => ipcRenderer.invoke('depot-listar', conta),
   depotGuardar: (conta, chave) => ipcRenderer.invoke('depot-guardar', conta, chave),
@@ -36,4 +37,7 @@ contextBridge.exposeInMainWorld('api', {
   sniperLimpar: () => ipcRenderer.send('sniper-limpar'),
   sniperZerarDia: () => ipcRenderer.send('sniper-zerar-dia'),
   sniperRegistro: (filtro) => ipcRenderer.invoke('sniper-registro', filtro),
+  aoSniperComprado: (fn) => ipcRenderer.on('sniper-comprado', (_e, linha) => fn(linha)),
+  sniperCompras: () => ipcRenderer.invoke('sniper-compras'),
+  sniperComprasVisto: () => ipcRenderer.send('sniper-compras-visto'),
 });
