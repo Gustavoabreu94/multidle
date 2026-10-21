@@ -223,6 +223,119 @@ function preencherSimulador(ficha) {
   document.getElementById('run')?.click();
 }
 
+// ---------- Sniper do Mercado ----------
+// "Ouvido" na conexão do jogo, instalado ANTES do jogo carregar (o Multidle injeta no início da página).
+// Guarda a conexão para enviar os mesmos pedidos que os botões do Mercado enviam, repassa as mensagens
+// e guarda os eventos de compra/sorteio para o registro. Não altera nada do que o jogo envia ou recebe.
+const GANCHO_CONEXAO = `(() => {
+  if (window.__multidle) return;
+  const Original = window.WebSocket;
+  const ouvintes = new Set();
+  const m = (window.__multidle = { ws: null, desvio: 0, eventos: [], ouvir: (fn) => (ouvintes.add(fn), () => ouvintes.delete(fn)) });
+  function Observado(...args) {
+    const ws = new Original(...args);
+    if (/pokeidle/.test(String(args[0]))) {
+      m.ws = ws;
+      ws.addEventListener('message', (ev) => {
+        if (/"(marketComprado|mktSorteio)"/.test(ev.data)) { m.eventos.push({ em: Date.now(), dados: String(ev.data).slice(0, 2000) }); if (m.eventos.length > 50) m.eventos.shift(); }
+        let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg && msg.servidorAgora) m.desvio = Date.now() - msg.servidorAgora;
+        // os itens próprios do jogo (fragmentos, casas...) só vêm na mensagem de entrada, não no catálogo público
+        if (Array.isArray(msg?.itensNossos)) m.itensNossos = msg.itensNossos.map((i) => [i.id, i.nome ?? i.name]);
+        for (const fn of ouvintes) { try { fn(msg); } catch {} }
+      });
+    }
+    return ws;
+  }
+  Observado.prototype = Original.prototype;
+  for (const k of ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED']) Observado[k] = Original[k];
+  window.WebSocket = Observado;
+})();`;
+
+// Roda na página: envia um pedido de CONSULTA do Mercado e espera a resposta "market" da aba esperada
+async function consultarMercado(pedido, aba) {
+  const m = window.__multidle;
+  if (!m?.ws || m.ws.readyState !== 1) return { erro: 'sem conexão do jogo (reinicie o Multidle para ativar o sniper nesta conta)' };
+  if (pedido.t === 'market.comprar') return { erro: 'consulta não compra' };
+  return new Promise((ok) => {
+    const tchau = setTimeout(() => { parar(); ok({ erro: 'o servidor não respondeu' }); }, 8000);
+    const parar = m.ouvir((msg) => {
+      if (msg.t === 'market' && (!aba || msg.aba === aba)) { clearTimeout(tchau); parar(); ok({ linhas: msg.linhas ?? [], resumo: msg.resumo, desvio: m.desvio }); }
+    });
+    m.ws.send(JSON.stringify(pedido));
+  });
+}
+
+// Roda na página: o pedido de compra de um anúncio (o mesmo do botão "Comprar" do jogo)
+function comprarNoMercado(pedido) {
+  const m = window.__multidle;
+  if (!m?.ws || m.ws.readyState !== 1 || pedido.t !== 'market.comprar') return false;
+  m.ws.send(JSON.stringify(pedido));
+  return true;
+}
+
+// Roda na página: nome de cada item (catálogo público do jogo + itens próprios que vieram na entrada)
+async function nomesDosItens() {
+  const publico = await fetch('/assets/items.json').then((r) => r.json()).catch(() => ({ items: [] }));
+  return [...(publico.items ?? []).map((i) => [i.id, i.name]), ...(window.__multidle?.itensNossos ?? [])];
+}
+
+// Roda na página: eventos de compra/sorteio guardados pelo ouvido desde a última leitura
+function eventosDoMercado() {
+  const m = window.__multidle;
+  return m ? m.eventos.splice(0) : [];
+}
+
+const OURO_POR_GEMA = 3_000_000;
+
+// Uma linha do Mercado -> anúncio no formato do sniper
+const anuncioDe = (l) => ({
+  id: l.id, preco: Number(l.preco) || 0, qtd: Number(l.qtd) || 1, moeda: l.moeda, vendedor: l.vendedor ?? '',
+  compravelEm: Number(l.compravelEm) || 0, aberto: l.estado === 'aberto' && !l.comprador,
+  nome: l.ficha?.nome ?? '', shiny: !!l.ficha?.shiny, nivel: l.ficha?.level ?? null, nota: l.ficha?.nota ?? null, potencia: l.ficha?.potencia ?? null,
+});
+
+// Alvos que o sniper sabe vigiar: um item (por id) ou "qualquer shiny"
+const sniper = {
+  gancho: GANCHO_CONEXAO,
+  consultar: consultarMercado,
+  comprar: comprarNoMercado,
+  eventos: eventosDoMercado,
+  // pedido de consulta do alvo + aba da resposta
+  consulta: (alvo) => (alvo.tipo === 'shiny'
+    ? { pedido: { t: 'market.listar', tipo: 'pokemon', moeda: alvo.moeda, busca: '', ordem: 'baratos', criterios: [], elementos: [], categoria: '',
+      soShiny: true, soP5: false, soMega: false, soLendario: false, soTmElemental: false, soTmAoe: false, semOutland: false, pagina: 0, especieId: 0 }, aba: null }
+    : { pedido: { t: 'market.item', itemId: Number(alvo.itemId), moeda: alvo.moeda }, aba: 'item' }),
+  anuncios: (linhas, alvo) => linhas.map(anuncioDe).filter((a) => (alvo.tipo === 'shiny' ? a.shiny : true)),
+  nomes: nomesDosItens,
+  pedidoItens: { t: 'market.itens', elementos: [], categoria: '' },
+  // itens à venda agora (resumo do Mercado) com nome, para escolher um alvo novo
+  catalogo: (resumo, nomes) => {
+    const nome = new Map(nomes.map(([id, n]) => [Number(id), n]));
+    return Object.entries(resumo ?? {}).map(([id, r]) => ({ itemId: Number(id), nome: nome.get(Number(id)) ?? `Item ${id}`, minOrb: r.minOrb ?? null, minGold: r.minGold ?? null }))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+  },
+  pedidoCompra: (a, qtd) => ({ t: 'market.comprar', id: a.id, qtd, preco: a.preco, moeda: a.moeda }),
+  // Ouro vale por Gemas nesta taxa: preço máximo em ouro, saldo mínimo e teto do dia em ouro saem daqui
+  ouroPorGema: OURO_POR_GEMA,
+  // padrão: os alvos do usuário (preço máx. em Gemas; em ouro = × OURO_POR_GEMA), todos começando desligados
+  alvosPadrao: [
+    ['boss', 70000, 'Boss Token', 3, 50],
+    ['aoe', 40530, 'Fragmento de AoE TM', 300, 1],
+    ['zmove', 59194, 'Fragmento de Z-Move', 220, 1],
+    ['bike', 70013, 'Fragmento de Bicicleta', 100, 2],
+    ['casa', 70011, 'Fragmento de Chave (Casa)', 180, 1],
+    ['mega', 70014, 'Fragmento de Mega Stone', 40, 3],
+    ['shinystone', 70012, 'Fragmento de Shiny Stone', 80, 2],
+    ['shiny', null, 'Qualquer shiny', 100, 2],
+    // shiny só se vende por Gemas no Mercado
+  ].flatMap(([id, itemId, nome, precoMax, maxDia]) => (itemId ? ['orb', 'gold'] : ['orb']).map((moeda) => ({
+    id: `${id}-${moeda}`, tipo: itemId ? 'item' : 'shiny', ...(itemId && { itemId }), nome, moeda,
+    precoMax: moeda === 'gold' ? precoMax * OURO_POR_GEMA : precoMax, maxDia, ativo: false,
+  }))),
+  moedas: { orb: 'Gemas', gold: 'Ouro' },
+};
+
 const doJogo = (url) => /^https:\/\/pokeidle\.io\//.test(url); // ícones só do próprio jogo
 const sinal = (v) => (/^[-−]/.test(String(v)) ? 'neg' : 'pos'); // o jogo usa "−" (sinal de menos) e "-"
 
@@ -326,6 +439,8 @@ module.exports = {
   },
   // Ao esconder a conta no Multidle
   aoEsconder: voltarEconomia,
+  // Sniper do Mercado (ver "Sniper do Mercado" acima); gemas/ouro de cada conta vêm do cartão
+  sniper,
   // Vender o Depot pelo cartão (duas etapas, ver prepararVenda)
   venda: { rotulo: 'Vender Depot', dica: 'Vende o Depot pela confirmação do próprio jogo (a Coleção fica de fora)', preparar: prepararVenda, concluir: concluirVenda },
   // Lista do Depot com os dados da ficha, e "Enviar para a Coleção" (tira da venda)
@@ -342,6 +457,8 @@ module.exports = {
 
 if (require.main === module) {
   const assert = require('node:assert');
+  assert.deepStrictEqual(sniper.catalogo({ 70013: { minOrb: 136 }, 999: { minGold: 5 } }, [[70013, 'Bicycle Fragment']]),
+    [{ itemId: 70013, nome: 'Bicycle Fragment', minOrb: 136, minGold: null }, { itemId: 999, nome: 'Item 999', minOrb: null, minGold: 5 }]);
   const c = montar({
     texto: 'MODO ECONOMIA\nAncient Pupitar · nível 150\nSESSÃO\n14:37\ncaçando\nXP TREINADOR',
     nick: 'Timoteo',
@@ -390,5 +507,13 @@ if (require.main === module) {
     twitch: { vinculada: true, ativo: true, valor: '+20% XP' }, kick: { fim: 80 * 60000, lista: 'XP +15%' } }).bonus;
   assert.deepStrictEqual(b.map((x) => `${x.rot}: ${x.v}`), ['+50% XP: 20 dias', 'Boost Guild: +10% XP · 10d', 'Twitch: +20% XP', 'Kick: XP +15% · 1h 20m']);
   assert.strictEqual(montar({ nick: 'X', agora: 100, kick: { fim: 50, lista: 'XP' } }).bonus.length, 0); // Kick vencido não aparece
+  // Sniper: linhas reais do Mercado (formato da sondagem) -> anúncios
+  const linhaItem = { id: 310967, vendedor: 'LauraBpi', qtd: 5, preco: 5, moeda: 'orb', estado: 'aberto', compravelEm: 1792540431323, comprador: null, ficha: { nome: 'Bronze Boss Token' } };
+  const linhaShiny = { id: 284009, vendedor: 'cacetinho', qtd: 1, preco: 380, moeda: 'orb', estado: 'aberto', compravelEm: 1, comprador: null, ficha: { nome: 'Shedinja', shiny: true, level: 100, nota: 4.41, potencia: 1 } };
+  assert.deepStrictEqual(sniper.anuncios([linhaItem], { tipo: 'item' })[0], { id: 310967, preco: 5, qtd: 5, moeda: 'orb', vendedor: 'LauraBpi', compravelEm: 1792540431323, aberto: true, nome: 'Bronze Boss Token', shiny: false, nivel: null, nota: null, potencia: null });
+  assert.strictEqual(sniper.anuncios([linhaItem, linhaShiny], { tipo: 'shiny' }).length, 1); // só shiny
+  assert.strictEqual(sniper.anuncios([{ ...linhaItem, comprador: 'X' }], { tipo: 'item' })[0].aberto, false);
+  assert.deepStrictEqual(sniper.pedidoCompra({ id: 1, preco: 3, moeda: 'orb' }, 2), { t: 'market.comprar', id: 1, qtd: 2, preco: 3, moeda: 'orb' });
+  assert.strictEqual(sniper.consulta({ tipo: 'item', itemId: '70000', moeda: 'orb' }).pedido.itemId, 70000);
   console.log('ok');
 }

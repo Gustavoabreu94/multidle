@@ -116,6 +116,10 @@ table.depot button{padding:2px 8px}
 .apoio-links{display:flex;flex-direction:column;gap:4px}
 a{color:#b48cff}
 .fraco{color:#a98bb3;font-size:12px}
+#modal.sniper{width:min(900px,94%)}
+#modal.sniper #modal-corpo{overflow:auto;padding:10px 14px;display:flex;flex-direction:column;gap:10px}
+table.depot input[type=number]{width:110px}
+.sniper-registro{font-size:12px;font-family:Consolas,monospace;background:#1d1421;border:1px solid #4a3550;border-radius:8px;padding:6px 8px;min-height:140px;max-height:260px;overflow:auto;white-space:pre-wrap;flex:none}
 </style>
 </head>
 <body>
@@ -128,6 +132,7 @@ a{color:#b48cff}
     <span id="novas" class="acoes" style="flex:none"></span>
   </span>
   <button id="atualizar" class="atualizar" hidden></button>
+  <button id="sniper" class="apoiar" title="Sniper do Mercado: compra anúncios abaixo do preço que você definir">&#x1F3AF; Sniper</button>
   <button id="lives" class="apoiar" title="Lives com bônus de XP" hidden>&#x1F4FA; Lives</button>
   <button id="apoiar" class="apoiar" title="Apoie o Multidle (opcional)">&#x2665; Apoiar</button>
   <span class="ctl">
@@ -351,7 +356,7 @@ function abrirModal(titulo, html, pequeno) {
   $('#modal-titulo').textContent = titulo;
   $('#modal-corpo').innerHTML = html;
   $('#modal').classList.toggle('pequeno', pequeno);
-  $('#modal').classList.remove('lives', 'depot');
+  $('#modal').classList.remove('lives', 'depot', 'sniper');
   $('#modal-corpo').onclick = null; // o clique do modal anterior (ex.: Depot) não vale para o próximo
 }
 
@@ -387,6 +392,101 @@ function desenharLives() {
 window.api.aoLives((l) => { estadoLives = l; $('#lives').hidden = !l.disponivel; if (modal === 'lives') desenharLives(); });
 window.api.livesPedir();
 $('#lives').onclick = () => { desenharLives(); window.api.livesPedir(); };
+
+// Sniper do Mercado: o programa vigia e compra; aqui só configura e mostra o registro.
+// A tabela é desenhada ao abrir; as atualizações só trocam o menor preço, o gasto e o registro
+// (redesenhar tudo apagaria o que a pessoa está digitando)
+let estadoSniper = null;
+const hora = (t) => new Date(t).toLocaleTimeString('pt-BR');
+function atualizarSniper() {
+  const s = estadoSniper;
+  if (modal !== 'sniper' || !s) return;
+  for (const a of s.cfg.alvos) {
+    const el = document.querySelector(`[data-menor="${CSS.escape(a.id)}"]`);
+    if (el) el.innerHTML = a.erro ? `<span class="neg">${esc(a.erro)}</span>`
+      : a.visto ? `${a.menor == null ? "nenhum anúncio" : num(a.menor)} <span class="fraco">às ${hora(a.visto)}</span>` : '<span class="fraco">—</span>';
+    const h = document.querySelector(`[data-hoje="${CSS.escape(a.id)}"]`);
+    if (h) h.textContent = `${s.gasto.alvo[a.id] ?? 0}/${a.maxDia}`;
+  }
+  const contas = Object.entries(s.gasto.conta).map(([id, v]) => `${esc(s.nomes?.[id] ?? id)}: ${num(Math.round(v))}`).join(' · ');
+  $('#sniper-gasto').innerHTML = `Gasto hoje${s.cfg.simulacao ? ' (simulação)' : ''}, em Gemas: ${contas || 'nada'}`;
+  $('#sniper-registro').textContent = s.registro.slice().reverse().map((l) => `${hora(l.em)}  ${l.texto}`).join('\n') || 'Nada ainda.';
+}
+function desenharSniper() {
+  const s = estadoSniper;
+  if (!s) return;
+  const c = s.cfg;
+  abrirModal('Sniper do Mercado', `<div class="lives-barra">
+      <label><input type="checkbox" id="sn-ligado" ${c.ligado ? 'checked' : ''}> Ligado</label>
+      <label title="Só registra o que compraria, sem comprar"><input type="checkbox" id="sn-sim" ${c.simulacao ? 'checked' : ''}> Modo simulação</label>
+      <label title="Nunca deixa a conta abaixo deste saldo (em ouro vale × ${num(s.ouroPorGema)})">Saldo mínimo <input type="number" id="sn-saldo" min="0" value="${esc(c.saldoMinimo)}" style="width:70px"> Gemas</label>
+      <label title="Máximo que cada conta gasta por dia (ouro conta convertido)">Teto/dia por conta <input type="number" id="sn-teto" min="0" value="${esc(c.tetoDiaConta)}" style="width:70px"> Gemas</label>
+    </div>
+    <div class="fraco">Cada anúncio é disputado por UMA conta só (a com mais saldo). Consulta a cada ${esc(c.intervaloS)} s, revezando as contas.</div>
+    <table class="depot"><tr><th></th><th>Alvo</th><th>Moeda</th><th>Preço máx.</th><th>Máx./dia</th><th>Hoje</th><th>Menor no Mercado</th></tr>
+    ${c.alvos.map((a) => `<tr data-alvo="${esc(a.id)}"><td><input type="checkbox" data-campo="ativo" ${a.ativo ? 'checked' : ''}></td>
+      <td>${esc(a.nome)}</td><td>${esc(s.moedas[a.moeda] ?? a.moeda)}</td>
+      <td><input type="number" min="0" data-campo="precoMax" value="${esc(a.precoMax)}"></td>
+      <td><input type="number" min="0" data-campo="maxDia" value="${esc(a.maxDia)}" style="width:60px"></td>
+      <td data-hoje="${esc(a.id)}"></td><td data-menor="${esc(a.id)}"></td>
+      <td><button data-remover="${esc(a.id)}" title="Remover este alvo">&#x2715;</button></td></tr>`).join('')}</table>
+    <div id="sn-novo" class="lives-barra"><button id="sn-adicionar">+ Adicionar alvo</button></div>
+    <div id="sniper-gasto" class="fraco"></div>
+    <div class="depot-rodape"><span class="fraco">Histórico (mais recente em cima)</span><button id="sn-historico" title="Abre o arquivo com todas as tentativas">Abrir histórico completo</button></div>
+    <div id="sniper-registro" class="sniper-registro"></div>`, false);
+  $('#modal').classList.add('sniper');
+  modal = 'sniper';
+  $('#sn-ligado').onchange = (e) => window.api.sniperSalvar({ ligado: e.target.checked });
+  $('#sn-sim').onchange = (e) => {
+    if (!e.target.checked && !confirm('Desligar a simulação faz o sniper COMPRAR de verdade com as suas contas. Continuar?')) return void (e.target.checked = true);
+    window.api.sniperSalvar({ simulacao: e.target.checked });
+  };
+  $('#sn-saldo').onchange = (e) => window.api.sniperSalvar({ saldoMinimo: e.target.value });
+  $('#sn-teto').onchange = (e) => window.api.sniperSalvar({ tetoDiaConta: e.target.value });
+  // os alvos como estão na tabela (com o que a pessoa já digitou)
+  const lerTabela = () => estadoSniper.cfg.alvos.map((a) => {
+    const v = (campo) => document.querySelector(`tr[data-alvo="${CSS.escape(a.id)}"] [data-campo="${campo}"]`);
+    return { ...a, ativo: v('ativo').checked, precoMax: v('precoMax').value, maxDia: v('maxDia').value };
+  });
+  const salvarERedesenhar = (alvos) => { redesenharSniper = true; window.api.sniperSalvar({ alvos }); };
+  $('#modal-corpo').onchange = (e) => { if (e.target.dataset.campo) window.api.sniperSalvar({ alvos: lerTabela() }); };
+  $('#modal-corpo').onclick = (e) => {
+    const id = e.target.dataset?.remover;
+    if (id) salvarERedesenhar(lerTabela().filter((a) => a.id !== id));
+  };
+  $('#sn-historico').onclick = () => window.api.sniperHistorico();
+  $('#sn-adicionar').onclick = async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = 'Lendo o Mercado...';
+    const r = await window.api.sniperCatalogo();
+    if (r.erro) return void ($('#sn-novo').innerHTML = `<span class="neg">${esc(r.erro)}</span>`);
+    const menor = (i) => [i.minOrb != null && `${num(i.minOrb)} Gemas`, i.minGold != null && `${num(i.minGold)} ouro`].filter(Boolean).join(' · ');
+    $('#sn-novo').innerHTML = `<select id="sn-item"><option value="shiny">✨ Qualquer shiny</option>${r.itens.map((i) =>
+      `<option value="${i.itemId}">${esc(i.nome)} (agora: ${esc(menor(i))})</option>`).join('')}</select>
+      <select id="sn-moeda">${Object.entries(s.moedas).map(([k, n]) => `<option value="${esc(k)}">${esc(n)}</option>`).join('')}</select>
+      <label>Preço máx. <input type="number" id="sn-preco" min="0" style="width:110px"></label>
+      <label>Máx./dia <input type="number" id="sn-maxdia" min="1" value="1" style="width:60px"></label>
+      <button id="sn-confirmar">Adicionar</button>`;
+    $('#sn-confirmar').onclick = () => {
+      const item = $('#sn-item').value;
+      const moeda = $('#sn-moeda').value;
+      const nome = item === 'shiny' ? 'Qualquer shiny' : r.itens.find((i) => String(i.itemId) === item).nome;
+      if (!(Number($('#sn-preco').value) > 0)) return void $('#sn-preco').focus();
+      salvarERedesenhar([...lerTabela(), { id: `${item}-${moeda}-${Date.now().toString(36)}`, tipo: item === 'shiny' ? 'shiny' : 'item',
+        itemId: item === 'shiny' ? undefined : Number(item), nome, moeda, precoMax: $('#sn-preco').value, maxDia: $('#sn-maxdia').value, ativo: true }]);
+    };
+  };
+  layout();
+  atualizarSniper();
+}
+let redesenharSniper = false; // depois de adicionar/remover, a tabela é desenhada de novo com o que o programa salvou
+window.api.aoSniper((s) => {
+  estadoSniper = s;
+  $('#sniper').classList.toggle('pos', s.cfg.ligado);
+  if (redesenharSniper && modal === 'sniper') { redesenharSniper = false; desenharSniper(); } else atualizarSniper();
+});
+window.api.sniperPedir();
+$('#sniper').onclick = () => { window.api.sniperPedir(); desenharSniper(); };
 
 $('#apoiar').onclick = () => {
   const pix = APOIO.pix

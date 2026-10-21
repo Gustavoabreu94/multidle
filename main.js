@@ -190,8 +190,24 @@ function criarView({ id, jogo: jogoId }) {
   wc.on('will-redirect', desviar);
   wc.setWindowOpenHandler(() => ({ action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true } }));
 
-  wc.loadURL(jogo.url);
   views.set(id, v);
+  // O sniper precisa do "ouvido" na conexão do jogo antes de a página carregar (o jogo conecta logo
+  // no início); o debugger interno do Electron injeta o script no começo de cada carregamento
+  if (jogo.sniper?.gancho) {
+    try {
+      wc.debugger.attach('1.3');
+      // sem página nenhuma o comando não responde: carrega uma em branco antes (e o jogo carrega mesmo se falhar)
+      const tchau = new Promise((ok) => setTimeout(ok, 5000));
+      wc.loadURL('about:blank')
+        .then(() => Promise.race([wc.debugger.sendCommand('Page.enable').then(() => wc.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: jogo.sniper.gancho })), tchau]))
+        .catch(() => {})
+        .finally(() => wc.loadURL(jogo.url));
+      return;
+    } catch {
+      // sem o ouvido o sniper não funciona nesta conta, mas o jogo carrega normalmente
+    }
+  }
+  wc.loadURL(jogo.url);
 }
 
 const ultimosCartoes = new Map(); // id da conta -> último cartão lido (as lives usam para achar a conta vinculada)
@@ -561,6 +577,158 @@ ipcMain.on('lives-max', (_e, n) => {
   vigiarLives(); // abre ou fecha lives na hora para bater com o número novo
 });
 
+// ---------- Sniper do Mercado ----------
+// Vigia anúncios dos alvos (item por id ou "qualquer shiny") e compra os que estão dentro do preço,
+// sempre por UMA conta por anúncio (a com mais saldo; várias contas no mesmo anúncio multiplicariam a
+// chance no sorteio, o que os termos tratam como abuso). Respeita a retenção: o pedido sai logo depois
+// dela, dentro da janela do sorteio. Começa desligado e em simulação (só registra o que compraria).
+const SNIPER_PADRAO = { ligado: false, simulacao: true, saldoMinimo: 20, tetoDiaConta: 500, intervaloS: 45 };
+const ARQ_REGISTRO = path.join(DADOS, 'sniper-registro.jsonl');
+const jogoComSniper = () => Object.values(JOGOS).find((j) => j.sniper);
+function cfgSniper() {
+  config.sniper ??= { ...SNIPER_PADRAO, alvos: structuredClone(jogoComSniper().sniper.alvosPadrao) };
+  return config.sniper;
+}
+const hoje = () => new Date().toLocaleDateString('sv-SE'); // AAAA-MM-DD no fuso do PC
+function gastos() {
+  if (config.sniperGasto?.dia !== hoje()) config.sniperGasto = { dia: hoje(), real: { conta: {}, alvo: {} }, sim: { conta: {}, alvo: {} } };
+  return config.sniperGasto[cfgSniper().simulacao ? 'sim' : 'real'];
+}
+// as últimas linhas do histórico (arquivo) voltam para a tela ao abrir o programa
+const registroSniper = (() => {
+  try { return fs.readFileSync(ARQ_REGISTRO, 'utf8').trim().split(/\r?\n/).slice(-200).map((l) => JSON.parse(l)); } catch { return []; }
+})();
+function registrar(texto, extra = {}) {
+  const linha = { em: Date.now(), texto, ...extra };
+  registroSniper.push(linha);
+  if (registroSniper.length > 200) registroSniper.shift();
+  fs.appendFile(ARQ_REGISTRO, JSON.stringify(linha) + '\n', () => {});
+  enviarSniper();
+}
+const numero = (v) => Number(String(v ?? '').replace(/\./g, '').replace(',', '.')) || 0;
+const saldoDe = (id, moeda) => numero(ultimosCartoes.get(id)?.selos?.find((s) => s.rot === (moeda === 'orb' ? 'Gemas' : 'Ouro'))?.v);
+// saldo mínimo e teto são em Gemas; em ouro valem × ouroPorGema (e o gasto em ouro conta convertido)
+const emGemas = (valor, moeda) => (moeda === 'gold' ? valor / (jogoComSniper().sniper.ouroPorGema || 1) : valor);
+const nomeDe = (id) => ultimosCartoes.get(id)?.nome || id;
+const enviarSniper = () => win?.webContents.send('sniper', { cfg: cfgSniper(), gasto: gastos(), registro: registroSniper.slice(-80), moedas: jogoComSniper().sniper.moedas,
+  ouroPorGema: jogoComSniper().sniper.ouroPorGema, nomes: Object.fromEntries(contas.map((c) => [c.id, nomeDe(c.id)])) });
+
+const tentados = new Set(); // anúncios já tratados (agendados, simulados ou sem saldo)
+let rodandoSniper = false;
+let ultimaRodada = 0;
+let giro = 0;
+
+// A conta que compra: a de maior saldo que ainda cabe no teto do dia e no saldo mínimo
+function escolherComprador(prontas, a, unidadesRestantes) {
+  const s = cfgSniper();
+  const g = gastos();
+  for (const c of [...prontas].sort((x, y) => saldoDe(y.id, a.moeda) - saldoDe(x.id, a.moeda))) {
+    const livre = Math.min(emGemas(saldoDe(c.id, a.moeda), a.moeda) - s.saldoMinimo, s.tetoDiaConta - (g.conta[c.id] ?? 0));
+    const qtd = Math.min(a.qtd, unidadesRestantes, Math.floor(livre / emGemas(a.preco, a.moeda)));
+    if (qtd >= 1) return { conta: c, qtd };
+  }
+  return null;
+}
+
+function agendarCompra(alvo, a, desvio, prontas) {
+  const s = cfgSniper();
+  const g = gastos();
+  tentados.add(a.id);
+  const restantes = alvo.maxDia - (g.alvo[alvo.id] ?? 0);
+  if (restantes <= 0) return;
+  const escolha = escolherComprador(prontas, a, restantes);
+  const descricao = `${a.shiny ? '✨ ' : ''}${a.nome || alvo.nome}${a.nivel ? ` Nv${a.nivel}` : ''} por ${a.preco} ${jogoComSniper().sniper.moedas[a.moeda] ?? a.moeda} (de ${a.vendedor})`;
+  if (!escolha) return registrar(`Sem saldo/teto para ${descricao}`, { alvo: alvo.id });
+  const { conta, qtd } = escolha;
+  // reserva no teto do dia já ao agendar (um sorteio perdido não devolve: o teto fica conservador)
+  g.conta[conta.id] = (g.conta[conta.id] ?? 0) + qtd * emGemas(a.preco, a.moeda);
+  g.alvo[alvo.id] = (g.alvo[alvo.id] ?? 0) + qtd;
+  salvarConfig();
+  // O pedido sai 0,3 s depois do fim da retenção, no relógio do servidor (dentro da janela de 3 s do sorteio)
+  const espera = Math.max(0, a.compravelEm + (desvio || 0) + 300 - Date.now());
+  const quando = new Date(Date.now() + espera).toLocaleTimeString('pt-BR');
+  registrar(`${s.simulacao ? 'SIMULAÇÃO: compraria' : 'Vai comprar'} ${qtd}× ${descricao} com ${nomeDe(conta.id)} às ${quando}`, { alvo: alvo.id });
+  if (s.simulacao) return;
+  setTimeout(async () => {
+    if (!cfgSniper().ligado || cfgSniper().simulacao) return registrar(`Cancelado (sniper desligado): ${descricao}`);
+    const enviado = await views.get(conta.id)?.webContents
+      .executeJavaScript(`(${JOGOS[conta.jogo].sniper.comprar})(${JSON.stringify(JOGOS[conta.jogo].sniper.pedidoCompra(a, qtd))})`).catch(() => false);
+    registrar(enviado ? `Pedido de compra enviado por ${nomeDe(conta.id)}: ${qtd}× ${descricao}` : `Falhou ao enviar a compra (${nomeDe(conta.id)} sem conexão)`);
+  }, espera);
+}
+
+// Resultado das compras (o jogo manda "comprado" e o andamento do sorteio): vai para o registro
+function resumoEvento(dados) {
+  try {
+    const achar = (o) => (o && typeof o === 'object' ? (/^(marketComprado|mktSorteio)$/.test(o.t) ? o : Object.values(o).map(achar).find(Boolean)) : null);
+    const e = achar(JSON.parse(dados));
+    if (e?.t === 'marketComprado') return `✅ Comprado: ${e.descricao ?? `anúncio ${e.id}`}`;
+    if (e?.t === 'mktSorteio') return `Sorteio do anúncio ${e.id ?? ''}: ${e.fim ? (e.levou ? '✅ levou' : '❌ perdeu') : e.entrou ? 'entrou na disputa' : 'atualizado'}`;
+  } catch {}
+  return null;
+}
+
+async function rodarSniper() {
+  const s = cfgSniper();
+  if (!s.ligado || rodandoSniper || Date.now() - ultimaRodada < s.intervaloS * 1000) return;
+  rodandoSniper = true;
+  ultimaRodada = Date.now();
+  try {
+    const prontas = contas.filter((c) => JOGOS[c.jogo].sniper && ultimosCartoes.get(c.id)?.pronto);
+    if (!prontas.length) return;
+    for (const c of prontas) {
+      const ev = await views.get(c.id).webContents.executeJavaScript(`(${JOGOS[c.jogo].sniper.eventos})()`).catch(() => []);
+      for (const e of ev) { const r = resumoEvento(e.dados); if (r) registrar(`${nomeDe(c.id)}: ${r}`); }
+    }
+    const nossos = new Set(prontas.map((c) => nomeDe(c.id)));
+    for (const alvo of s.alvos.filter((a) => a.ativo)) {
+      const consultora = prontas[giro++ % prontas.length]; // a consulta revesa entre as contas
+      const j = JOGOS[consultora.jogo].sniper;
+      const { pedido, aba } = j.consulta(alvo);
+      const r = await rodarSemDesacelerar(consultora.id, `(${j.consultar})(${JSON.stringify(pedido)}, ${JSON.stringify(aba)})`);
+      if (r?.erro) { alvo.erro = r.erro; continue; }
+      alvo.erro = '';
+      const anuncios = j.anuncios(r.linhas, alvo).filter((a) => a.aberto && a.moeda === alvo.moeda && !nossos.has(a.vendedor));
+      alvo.menor = anuncios.length ? Math.min(...anuncios.map((a) => a.preco)) : null;
+      alvo.visto = Date.now();
+      for (const a of anuncios.filter((x) => x.preco <= alvo.precoMax && !tentados.has(x.id))) agendarCompra(alvo, a, r.desvio, prontas);
+      await new Promise((ok) => setTimeout(ok, 500)); // espaça as consultas para não pesar no servidor
+    }
+  } finally {
+    rodandoSniper = false;
+    enviarSniper();
+  }
+}
+
+ipcMain.on('sniper-pedir', () => enviarSniper());
+ipcMain.on('sniper-historico', () => shell.openPath(ARQ_REGISTRO));
+// Itens à venda agora, com nome, para a tela escolher um alvo novo
+ipcMain.handle('sniper-catalogo', async () => {
+  const c = contas.find((x) => JOGOS[x.jogo].sniper && ultimosCartoes.get(x.id)?.pronto);
+  if (!c) return { erro: 'Nenhuma conta carregada para consultar o Mercado.' };
+  const j = JOGOS[c.jogo].sniper;
+  const r = await rodarSemDesacelerar(c.id, `(${j.consultar})(${JSON.stringify(j.pedidoItens)}, 'itens')`);
+  if (r?.erro) return r;
+  const nomes = await views.get(c.id).webContents.executeJavaScript(`(${j.nomes})()`).catch(() => []);
+  return { itens: j.catalogo(r.resumo, nomes) };
+});
+ipcMain.on('sniper-salvar', (_e, novo) => {
+  const s = cfgSniper();
+  const n = (v, min, max, padrao) => (v === '' || !Number.isFinite(Number(v)) ? padrao : Math.min(max, Math.max(min, Number(v))));
+  if ('ligado' in novo) { s.ligado = !!novo.ligado; registrar(s.ligado ? `Sniper ligado (${s.simulacao ? 'simulação' : 'COMPRA DE VERDADE'})` : 'Sniper desligado'); }
+  if ('simulacao' in novo) { s.simulacao = !!novo.simulacao; registrar(s.simulacao ? 'Modo simulação ligado' : '⚠ Modo simulação DESLIGADO: o sniper vai comprar de verdade'); }
+  if ('saldoMinimo' in novo) s.saldoMinimo = n(novo.saldoMinimo, 0, 1e9, 20);
+  if ('tetoDiaConta' in novo) s.tetoDiaConta = n(novo.tetoDiaConta, 0, 1e9, 500);
+  if (Array.isArray(novo.alvos)) {
+    s.alvos = novo.alvos.map((a) => ({
+      id: String(a.id), tipo: a.tipo === 'shiny' ? 'shiny' : 'item', itemId: a.tipo === 'shiny' ? undefined : Number(a.itemId) || 0, nome: String(a.nome || '').slice(0, 40),
+      moeda: a.moeda === 'gold' ? 'gold' : 'orb', precoMax: n(a.precoMax, 0, 1e9, 0), maxDia: n(a.maxDia, 0, 1e6, 0), ativo: !!a.ativo,
+    })).filter((a) => a.tipo === 'shiny' || a.itemId > 0);
+  }
+  salvarConfig();
+  enviarSniper();
+});
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -596,5 +764,6 @@ if (!app.requestSingleInstanceLock()) {
     // Lives: primeira leitura depois que as contas carregarem e o primeiro cartão for lido
     setTimeout(vigiarLives, 30_000);
     setInterval(vigiarLives, VIGIAR_LIVES_MS);
+    setInterval(rodarSniper, 5000); // o próprio sniper respeita o intervalo configurado
   });
 }

@@ -28,4 +28,9 @@ contextBridge.exposeInMainWorld('api', {
   livesEntrar: () => ipcRenderer.send('lives-entrar'),
   livesMax: (n) => ipcRenderer.send('lives-max', n),
   livesSoChat: (soChat) => ipcRenderer.send('lives-so-chat', soChat),
+  aoSniper: (fn) => ipcRenderer.on('sniper', (_e, s) => fn(s)),
+  sniperPedir: () => ipcRenderer.send('sniper-pedir'),
+  sniperSalvar: (novo) => ipcRenderer.send('sniper-salvar', novo),
+  sniperCatalogo: () => ipcRenderer.invoke('sniper-catalogo'),
+  sniperHistorico: () => ipcRenderer.send('sniper-historico'),
 });
