@@ -471,9 +471,11 @@ function desenharSniper() {
     </div>
     <div class="fraco">Cada anúncio é disputado por UMA conta só (a com mais saldo). Consulta a cada ${esc(c.intervaloS)} s, revezando as contas.</div>
     <div class="lives-barra"><button id="sn-ativar-todos">Ativar todos</button><button id="sn-desativar-todos">Desativar todos</button></div>
-    <table class="depot"><tr><th></th><th>Alvo</th><th>Moeda</th><th>Preço máx.</th><th>Máx./dia</th><th>Hoje</th><th>Menor no Mercado</th></tr>
+    <table class="depot"><tr><th></th><th>Alvo</th><th>Moeda</th><th>Conta</th><th>Preço máx.</th><th>Máx./dia</th><th>Hoje</th><th>Menor no Mercado</th></tr>
     ${c.alvos.map((a) => `<tr data-alvo="${esc(a.id)}"><td><input type="checkbox" data-campo="ativo" ${a.ativo ? 'checked' : ''}></td>
       <td>${esc(a.nome)}</td><td>${esc(s.moedas[a.moeda] ?? a.moeda)}</td>
+      <td><select data-campo="conta" title="Qual conta compra este alvo"><option value="">Qualquer conta</option>${Object.entries(s.nomes ?? {}).map(([id, n]) =>
+        `<option value="${esc(id)}" ${a.conta === id ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></td>
       <td><input type="number" min="0" data-campo="precoMax" value="${esc(a.precoMax)}"></td>
       <td><input type="number" min="0" data-campo="maxDia" value="${esc(a.maxDia)}" style="width:60px"></td>
       <td data-hoje="${esc(a.id)}"></td><td data-menor="${esc(a.id)}"></td>
@@ -501,7 +503,7 @@ function desenharSniper() {
   // os alvos como estão na tabela (com o que a pessoa já digitou)
   const lerTabela = () => estadoSniper.cfg.alvos.map((a) => {
     const v = (campo) => document.querySelector(`tr[data-alvo="${CSS.escape(a.id)}"] [data-campo="${campo}"]`);
-    return { ...a, ativo: v('ativo').checked, precoMax: v('precoMax').value, maxDia: v('maxDia').value };
+    return { ...a, ativo: v('ativo').checked, precoMax: v('precoMax').value, maxDia: v('maxDia').value, conta: v('conta').value };
   });
   const salvarERedesenhar = (alvos) => { redesenharSniper = true; window.api.sniperSalvar({ alvos }); };
   $('#modal-corpo').onchange = (e) => {

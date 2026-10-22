@@ -2,7 +2,7 @@
 // área do jogo por conta. Cada conta tem a própria partição (login isolado). Tudo que é de um jogo
 // fica no módulo dele em jogos/. Login do Google é feito num Chrome/Edge de verdade (o Google bloqueia
 // login em app embutido) e a sessão do jogo é copiada para cá.
-const { app, BrowserWindow, WebContentsView, ipcMain, session, shell, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, session, shell, powerSaveBlocker, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
@@ -18,6 +18,13 @@ const FERRAMENTA = '__ferramenta:'; // prefixo da área da ferramenta de um jogo
 // não mexe nas sessões da versão instalada e pode abrir junto com ela
 app.setPath('userData', path.join(app.getPath('appData'), app.isPackaged ? 'multidle' : 'multidle-dev'));
 const DADOS = app.getPath('userData');
+// Diagnóstico das telas (conta que para de desenhar, cai, sai da janela...): uma linha por evento, com hora,
+// para investigar quando o usuário disser "às 18:14 fechou sozinho". Passando de 1 MB, começa um novo.
+const ARQ_DIAG = path.join(DADOS, 'diagnostico.log');
+function diag(texto) {
+  try { if (fs.statSync(ARQ_DIAG).size > 1_000_000) fs.renameSync(ARQ_DIAG, ARQ_DIAG + '.antigo'); } catch {}
+  fs.appendFile(ARQ_DIAG, `${new Date().toLocaleString('pt-BR')}  ${texto}\n`, () => {});
+}
 const ARQ_CONTAS = path.join(DADOS, 'contas.json');
 const ARQ_UA = path.join(DADOS, 'ua.txt');
 
@@ -180,8 +187,14 @@ function criarView({ id, jogo: jogoId }) {
   wc.on('did-finish-load', () => { wc.setZoomFactor(ZOOM); setTimeout(coletar, 3000); });
   // Tela branca: a página da conta caiu (ex.: falta de memória) ou o carregamento falhou (rede caiu no
   // meio do F5/atualização do jogo). Nos dois casos ela não volta sozinha: recarrega (com uma pausa)
-  wc.on('render-process-gone', (_e, d) => { if (d.reason !== 'clean-exit') setTimeout(() => !wc.isDestroyed() && wc.reload(), 2000); });
+  wc.on('render-process-gone', (_e, d) => {
+    diag(`${nomeDe(id)}: a página caiu (${d.reason}, código ${d.exitCode})`);
+    if (d.reason !== 'clean-exit') setTimeout(() => !wc.isDestroyed() && wc.reload(), 2000);
+  });
+  wc.on('unresponsive', () => diag(`${nomeDe(id)}: a página travou (sem responder)`));
+  wc.on('did-start-navigation', (_e, url, mesmaPagina, principal) => { if (principal && !mesmaPagina) diag(`${nomeDe(id)}: carregando ${url}`); });
   wc.on('did-fail-load', (_e, codigo, _desc, url, principal) => {
+    if (principal) diag(`${nomeDe(id)}: falhou ao carregar (código ${codigo})`);
     if (principal && codigo !== -3 && url.startsWith(jogo.url)) setTimeout(() => !wc.isDestroyed() && wc.loadURL(jogo.url), 5000); // -3 = carregamento trocado por outro
   });
 
@@ -240,7 +253,9 @@ async function coletar() {
 // Conta escondida sai da janela (não só fica invisível): assim a página fica "oculta" e o
 // Chromium para de desenhar, como numa janela minimizada (~1% de CPU em vez de ~20%)
 const naJanela = new Set();
+let modalNoPainel = false; // só para o diagnóstico: a conta sai da janela quando um modal do painel abre
 ipcMain.on('layout', (_e, mapa) => {
+  modalNoPainel = Object.keys(mapa).some((k) => k.startsWith('__') && k !== VOLTAR);
   for (const [id, v] of views) {
     const r = mapa[id];
     if (r) {
@@ -254,6 +269,7 @@ ipcMain.on('layout', (_e, mapa) => {
       // ao entrar na janela ou mudar de tamanho (ver garantirQuadros)
       if (jogoDe(id) && (!antes || antes.width !== r.width || antes.height !== r.height)) garantirQuadros(id, v);
     } else if (naJanela.delete(id)) {
+      if (jogoDe(id)) diag(`${nomeDe(id)}: saiu da janela (painel: ${modalNoPainel ? 'modal aberto' : 'escondida/voltou ao painel'})`);
       win.contentView.removeChildView(v);
       if (id.startsWith(LIVE)) { guardarLive(v); continue; } // live escondida volta para a janela invisível
       const aoEsconder = jogoDe(id)?.aoEsconder; // só contas (ferramentas e lives não têm jogo)
@@ -269,11 +285,21 @@ const DESENHANDO = `new Promise((ok) => { let n = 0; requestAnimationFrame(funct
 async function garantirQuadros(id, v, tentativa = 1) {
   const wc = v.webContents;
   const desenhando = await wc.executeJavaScript(DESENHANDO).catch(() => true);
+  if (desenhando && tentativa > 1) diag(`${nomeDe(id)}: voltou a desenhar (tentativa ${tentativa - 1})`);
+  if (!desenhando && tentativa > 3) diag(`${nomeDe(id)}: continua sem desenhar depois de 3 tentativas`);
   if (desenhando || wc.isDestroyed() || !naJanela.has(id) || tentativa > 3) return;
+  if (tentativa === 1) diag(`${nomeDe(id)}: parou de desenhar (tela azul) — tirando e pondo na janela`);
   win.contentView.removeChildView(v);
   win.contentView.addChildView(v);
   if (naJanela.has(VOLTAR)) win.contentView.addChildView(views.get(VOLTAR)); // o "Voltar ao painel" fica por cima
   setTimeout(() => garantirQuadros(id, v, tentativa + 1), 300);
+}
+// A conta também para de desenhar sozinha, com o tempo (testado pelo usuário: maximizada, depois de um tempo
+// sobrou só o "Voltar ao painel" sobre os cartões). Confere as contas na tela de tempos em tempos, ao
+// restaurar a janela e quando o PC volta da suspensão/bloqueio. Minimizada, a página não desenha mesmo: não confere.
+function conferirQuadros() {
+  if (!win || win.isMinimized() || !win.isVisible()) return;
+  for (const id of naJanela) if (jogoDe(id)) garantirQuadros(id, views.get(id));
 }
 // Botão "Voltar ao painel" por cima da conta maximizada: a página do jogo cobre o painel, então o
 // botão é uma área própria (pequena e transparente) posta acima dela, no centro do topo
@@ -717,16 +743,20 @@ function agendarCompra(alvo, a, desvio, prontas) {
   tentados.add(a.id);
   const restantes = alvo.maxDia - (g.alvo[alvo.id] ?? 0);
   if (restantes <= 0) return;
-  const escolha = escolherComprador(prontas, a, restantes);
+  // alvo preso a uma conta (ex.: diamantes só na principal): só ela compra
+  const permitidas = alvo.conta ? prontas.filter((c) => c.id === alvo.conta) : prontas;
+  const escolha = escolherComprador(permitidas, a, restantes);
   const descricao = `${a.shiny ? '✨ ' : ''}${a.nome || alvo.nome}${a.nivel ? ` Nv${a.nivel}` : ''} por ${a.preco} ${jogoComSniper().sniper.moedas[a.moeda] ?? a.moeda} (de ${a.vendedor})`;
+  if (!permitidas.length) return registrar(`${nomeDe(alvo.conta)} não está carregada: ${descricao}`, { alvo: alvo.id, tipo: 'sem-saldo' });
   if (!escolha) return registrar(`Sem saldo/teto para ${descricao}`, { alvo: alvo.id, tipo: 'sem-saldo' });
   const { conta, qtd } = escolha;
   // reserva no teto do dia já ao agendar (um sorteio perdido não devolve: o teto fica conservador)
   g.conta[conta.id] = (g.conta[conta.id] ?? 0) + qtd * emGemas(a.preco, a.moeda);
   g.alvo[alvo.id] = (g.alvo[alvo.id] ?? 0) + qtd;
   salvarConfig();
-  // O pedido sai 0,3 s depois do fim da retenção, no relógio do servidor (dentro da janela de 3 s do sorteio)
-  const espera = Math.max(0, a.compravelEm + (desvio || 0) + 300 - Date.now());
+  // O pedido sai 0,8 s depois do fim da retenção, no relógio do servidor (dentro da janela de 3 s do sorteio;
+  // com 0,3 s, uma oscilação do relógio/rede fazia chegar ainda na retenção)
+  const espera = Math.max(0, a.compravelEm + (desvio || 0) + 800 - Date.now());
   const quando = new Date(Date.now() + espera).toLocaleTimeString('pt-BR');
   // item, quantidade e preço separados para a lista de compras (o texto junta tudo)
   const base = { alvo: alvo.id, conta: nomeDe(conta.id), item: `${a.shiny ? '✨ ' : ''}${a.nome || alvo.nome}${a.nivel ? ` Nv${a.nivel}` : ''}`,
@@ -785,10 +815,15 @@ async function rodarSniper() {
     const escondidas = prontas.filter((c) => !naJanela.has(c.id));
     const paraConsultar = escondidas.length ? escondidas : prontas;
     for (const alvo of s.alvos.filter((a) => a.ativo)) {
-      const consultora = paraConsultar[giro++ % paraConsultar.length]; // a consulta revesa entre as contas escondidas
-      const j = JOGOS[consultora.jogo].sniper;
-      const { pedido, aba } = j.consulta(alvo);
-      const r = await rodarSemDesacelerar(consultora.id, `(${j.consultar})(${JSON.stringify(pedido)}, ${JSON.stringify(aba)})`);
+      // a consulta revesa entre as contas escondidas; se a da vez está sem conexão (ex.: ainda entrando), tenta a próxima
+      let r, j;
+      for (let i = 0; i < paraConsultar.length; i++) {
+        const consultora = paraConsultar[giro++ % paraConsultar.length];
+        j = JOGOS[consultora.jogo].sniper;
+        const { pedido, aba } = j.consulta(alvo);
+        r = await rodarSemDesacelerar(consultora.id, `(${j.consultar})(${JSON.stringify(pedido)}, ${JSON.stringify(aba)})`);
+        if (!r?.erro) break;
+      }
       if (r?.erro) { alvo.erro = r.erro; continue; }
       alvo.erro = '';
       const anuncios = j.anuncios(r.linhas, alvo).filter((a) => a.aberto && a.moeda === alvo.moeda && !nossos.has(a.vendedor));
@@ -834,6 +869,7 @@ ipcMain.on('sniper-salvar', (_e, novo) => {
     s.alvos = novo.alvos.map((a) => ({
       id: String(a.id), tipo: ['shiny', 'diamante'].includes(a.tipo) ? a.tipo : 'item', itemId: a.tipo === 'item' ? Number(a.itemId) || 0 : undefined, nome: String(a.nome || '').slice(0, 40),
       moeda: a.moeda === 'gold' ? 'gold' : 'orb', precoMax: n(a.precoMax, 0, 1e9, 0), maxDia: n(a.maxDia, 0, 1e6, 0), ativo: !!a.ativo,
+      conta: contas.some((c) => c.id === a.conta) ? a.conta : '',
     })).filter((a) => a.tipo !== 'item' || a.itemId > 0);
   }
   salvarConfig();
@@ -871,7 +907,7 @@ if (!app.requestSingleInstanceLock()) {
       fs.watch(pastaPainel, (_ev, nome) => {
         if (nome !== 'painel.html') return;
         clearTimeout(espera);
-        espera = setTimeout(() => win.webContents.reload(), 300); // o editor salva em mais de uma escrita
+        espera = setTimeout(() => { diag('painel recarregado (painel.html salvo, modo painelDev)'); win.webContents.reload(); }, 300); // o editor salva em mais de uma escrita
       });
       win.webContents.on('did-finish-load', () => setTimeout(coletar, 300)); // cartões de volta sem esperar o ciclo
     }
@@ -887,6 +923,9 @@ if (!app.requestSingleInstanceLock()) {
     // Jogo idle precisa continuar rodando: com o Multidle aberto o Windows não suspende o PC (na bateria
     // ele suspendia após 5 min sem uso e as contas paravam). A tela ainda pode apagar normalmente.
     powerSaveBlocker.start('prevent-app-suspension');
+    setInterval(conferirQuadros, 5_000);
+    win.on('restore', () => setTimeout(conferirQuadros, 500));
+    for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => setTimeout(conferirQuadros, 1500));
     setInterval(coletar, ATUALIZAR_MS);
     vigiarAtualizacoes();
     // Lives: primeira leitura depois que as contas carregarem e o primeiro cartão for lido

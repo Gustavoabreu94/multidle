@@ -258,7 +258,9 @@ const GANCHO_CONEXAO = `(() => {
           for (const v of Object.values(o)) guardar(v, fundo + 1);
         };
         if (/"(marketComprado|mktSorteio)"|"market[.]/.test(ev.data)) guardar(msg, 0);
-        if (msg && msg.servidorAgora) m.desvio = Date.now() - msg.servidorAgora;
+        // hora do servidor: desde a v1.345 do jogo vem dentro de "estado" (antes, no topo da mensagem)
+        const agora = msg?.servidorAgora ?? msg?.estado?.servidorAgora;
+        if (agora) m.desvio = Date.now() - agora;
         // os itens próprios do jogo (fragmentos, casas...) só vêm na mensagem de entrada, não no catálogo público
         if (Array.isArray(msg?.itensNossos)) m.itensNossos = msg.itensNossos.map((i) => [i.id, i.nome ?? i.name]);
         for (const fn of ouvintes) { try { fn(msg); } catch {} }
