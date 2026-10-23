@@ -284,6 +284,8 @@ ipcMain.on('layout', (_e, mapa) => {
 const DESENHANDO = `new Promise((ok) => { let n = 0; requestAnimationFrame(function f() { if (++n < 3) requestAnimationFrame(f); else ok(true); }); setTimeout(() => ok(false), 1000); })`;
 async function garantirQuadros(id, v, tentativa = 1) {
   const wc = v.webContents;
+  // Carregando, a página ainda não desenha mesmo: tirar e pôr a cada conferida só atrapalhava o carregamento
+  if (wc.isDestroyed() || wc.isLoading()) return;
   const desenhando = await wc.executeJavaScript(DESENHANDO).catch(() => true);
   if (desenhando && tentativa > 1) diag(`${nomeDe(id)}: voltou a desenhar (tentativa ${tentativa - 1})`);
   if (!desenhando && tentativa > 3) diag(`${nomeDe(id)}: continua sem desenhar depois de 3 tentativas`);
@@ -725,11 +727,13 @@ let rodandoSniper = false;
 let ultimaRodada = 0;
 let giro = 0;
 
-// A conta que compra: a de maior saldo que ainda cabe no teto do dia e no saldo mínimo
+// A conta que compra: a de maior saldo que ainda cabe no teto do dia e no saldo mínimo, primeiro entre as
+// escondidas (a resposta da compra aparece na tela do jogo e atrapalhava quem estava usando a conta)
 function escolherComprador(prontas, a, unidadesRestantes) {
   const s = cfgSniper();
   const g = gastos();
-  for (const c of [...prontas].sort((x, y) => saldoDe(y.id, a.moeda) - saldoDe(x.id, a.moeda))) {
+  const ordem = (x, y) => naJanela.has(x.id) - naJanela.has(y.id) || saldoDe(y.id, a.moeda) - saldoDe(x.id, a.moeda);
+  for (const c of [...prontas].sort(ordem)) {
     const livre = Math.min(emGemas(saldoDe(c.id, a.moeda), a.moeda) - s.saldoMinimo, s.tetoDiaConta - (g.conta[c.id] ?? 0));
     const qtd = Math.min(a.qtd, unidadesRestantes, Math.floor(livre / emGemas(a.preco, a.moeda)));
     if (qtd >= 1) return { conta: c, qtd };
