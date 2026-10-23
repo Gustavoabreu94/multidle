@@ -91,61 +91,55 @@ const jogoDe = (id) => JOGOS[contas.find((c) => c.id === id)?.jogo];
 
 // ---------- DevTools do navegador de login ----------
 
-function rpc(wsUrl, method, params = {}) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
-    const timer = setTimeout(() => { ws.close(); reject(new Error('timeout')); }, 5000);
-    ws.onopen = () => ws.send(JSON.stringify({ id: 1, method, params }));
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.id !== 1) return;
-      clearTimeout(timer);
-      ws.close();
-      msg.error ? reject(new Error(msg.error.message)) : resolve(msg.result);
-    };
-    ws.onerror = () => { clearTimeout(timer); reject(new Error('sem conexão')); };
+// Navegador escondido com o DevTools pelo canal do processo (--remote-debugging-pipe): o processo
+// principal do Electron 33 não tem WebSocket. Mensagens em JSON separadas por \0, nos canais 3 (ida) e 4 (volta).
+function navegadorComDevtools(args) {
+  const p = spawn(NAVEGADOR, [...args, '--remote-debugging-pipe'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const pendentes = new Map();
+  let resto = '';
+  let n = 0;
+  p.stdio[4].on('data', (d) => {
+    resto += d;
+    for (let i; (i = resto.indexOf('\0')) >= 0; resto = resto.slice(i + 1)) {
+      const msg = JSON.parse(resto.slice(0, i));
+      pendentes.get(msg.id)?.(msg);
+    }
   });
+  p.stdio[3].on('error', () => {}); // o navegador fechou com pedido no caminho: o tempo esgota e avisa
+  const rpc = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+    const id = ++n;
+    const timer = setTimeout(() => { pendentes.delete(id); reject(new Error('timeout')); }, 5000);
+    pendentes.set(id, (msg) => {
+      clearTimeout(timer);
+      pendentes.delete(id);
+      msg.error ? reject(new Error(msg.error.message)) : resolve(msg.result);
+    });
+    p.stdio[3].write(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }) + '\0');
+  });
+  return { processo: p, rpc };
 }
 
-// Primeira aba do jogo com sessão salva: devolve localStorage, cookies e user agent
-async function lerSessaoNavegador(porta, jogo) {
-  const base = `http://127.0.0.1:${porta}`;
-  const host = hostDe(jogo.origem);
-  const { 'User-Agent': userAgent } = await (await fetch(`${base}/json/version`)).json();
-  for (const t of (await (await fetch(`${base}/json/list`)).json()).filter((t) => t.type === 'page' && hostDe(t.url).endsWith(host))) {
-    const r = await rpc(t.webSocketDebuggerUrl, 'Runtime.evaluate', { expression: 'JSON.stringify(localStorage)', returnByValue: true });
-    const storage = JSON.parse(r.result.value || '{}');
-    if (!jogo.logado(storage)) continue;
-    const { cookies } = await rpc(t.webSocketDebuggerUrl, 'Network.getCookies', { urls: [jogo.origem] });
-    return { storage, cookies, userAgent };
-  }
-  return null;
-}
-
-// Abre um navegador só desta conta (pasta própria, então o Google lembra o login), espera o jogo
-// salvar a sessão, copia para cá e fecha o navegador
+// Abre um navegador só desta conta (pasta própria, então o Google lembra o login). Sem depuração: o Google
+// recusa login em navegador controlado ("Esse navegador ou app pode não ser seguro"). Quando o usuário fecha
+// a janela, lê a sessão do perfil (como na Twitch) e copia para cá
 async function entrar(id) {
   const jogo = jogoDe(id);
   if (!jogo || !NAVEGADOR || entrando.has(id)) return;
   entrando.add(id);
   coletar();
   const dir = path.join(DADOS, 'login', id);
-  const arqPorta = path.join(dir, 'DevToolsActivePort');
-  fs.rmSync(arqPorta, { force: true });
-  spawn(NAVEGADOR, [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check', '--new-window', jogo.url],
-    { detached: true, stdio: 'ignore' }).unref();
   try {
-    for (const fim = Date.now() + 10 * 60_000; Date.now() < fim;) {
-      await espera(1500);
-      if (!fs.existsSync(arqPorta)) continue;
-      const porta = fs.readFileSync(arqPorta, 'utf8').split('\n')[0].trim();
-      const sessao = await lerSessaoNavegador(porta, jogo).catch(() => null);
-      if (!sessao) continue;
-      await aplicarSessao(id, jogo, sessao);
-      const { webSocketDebuggerUrl } = await (await fetch(`http://127.0.0.1:${porta}/json/version`)).json();
-      await rpc(webSocketDebuggerUrl, 'Browser.close').catch(() => {});
-      return;
-    }
+    const login = spawn(NAVEGADOR, [`--user-data-dir=${dir}`, '--no-first-run', '--no-default-browser-check', '--new-window', jogo.url], { stdio: 'ignore' });
+    await new Promise((r) => login.once('exit', r));
+    diag(`${nomeDe(id)}: janela do login fechada, lendo a sessão`);
+    const sessao = await lerCookiesDoPerfil(dir, jogo.origem);
+    if (!sessao || !jogo.logado(sessao.storage)) return diag(`${nomeDe(id)}: sem sessão no navegador (${sessao ? 'não logado' : 'perfil não pôde ser lido'})`);
+    const host = hostDe(jogo.origem);
+    sessao.cookies = sessao.cookies.filter((c) => { const d = c.domain.replace(/^\./, ''); return host === d || host.endsWith('.' + d); }); // o perfil tem os do Google também
+    await aplicarSessao(id, jogo, sessao);
+    diag(`${nomeDe(id)}: sessão copiada do navegador`);
+  } catch (e) {
+    diag(`${nomeDe(id)}: login falhou (${e.message})`); // o botão volta e dá para tentar de novo
   } finally {
     entrando.delete(id);
     coletar();
@@ -574,28 +568,34 @@ async function vigiarLives() {
 // Abre o perfil do navegador escondido (sem carregar site nenhum) e devolve todos os cookies salvos.
 // Logo depois de o usuário fechar a janela o navegador ainda segura o perfil por uns segundos
 // (testado: a primeira leitura falhava), então tenta algumas vezes.
-async function lerCookiesDoPerfil(dir) {
-  const arqPorta = path.join(dir, 'DevToolsActivePort');
+// Com `origem`, também lê o localStorage desse site: abre uma página simples dele (robots.txt), sem o
+// jogo, para a leitura não conectar a conta (o limite de contas conectadas conta)
+async function lerCookiesDoPerfil(dir, origem) {
   for (let tentativa = 0; tentativa < 8; tentativa++) {
-    fs.rmSync(arqPorta, { force: true });
-    const leitor = spawn(NAVEGADOR, ['--headless=new', `--user-data-dir=${dir}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' });
+    const { processo, rpc } = navegadorComDevtools(['--headless=new', `--user-data-dir=${dir}`, origem ? `${origem}/robots.txt` : 'about:blank']);
     try {
-      for (let i = 0; i < 20 && !fs.existsSync(arqPorta); i++) await espera(250);
-      if (fs.existsSync(arqPorta)) {
-        const base = `http://127.0.0.1:${fs.readFileSync(arqPorta, 'utf8').split('\n')[0].trim()}`;
-        const { webSocketDebuggerUrl } = await (await fetch(`${base}/json/version`)).json();
-        const { cookies } = await rpc(webSocketDebuggerUrl, 'Storage.getCookies');
-        await rpc(webSocketDebuggerUrl, 'Browser.close').catch(() => {});
-        return cookies;
+      const { cookies } = await rpc('Storage.getCookies');
+      if (!origem) return cookies;
+      const { userAgent } = await rpc('Browser.getVersion');
+      for (let i = 0; i < 20; i++) {
+        const { targetInfos } = await rpc('Target.getTargets');
+        const pagina = targetInfos.find((t) => t.type === 'page' && t.url.startsWith(origem));
+        if (pagina) {
+          const { sessionId } = await rpc('Target.attachToTarget', { targetId: pagina.targetId, flatten: true });
+          const r = await rpc('Runtime.evaluate', { expression: 'JSON.stringify(localStorage)', returnByValue: true }, sessionId).catch(() => null);
+          if (r?.result?.value) return { cookies, storage: JSON.parse(r.result.value), userAgent: userAgent.replace('HeadlessChrome', 'Chrome') };
+        }
+        await espera(250);
       }
     } catch {
       // perfil ainda em uso ou navegador lento para subir: tenta de novo
     } finally {
-      leitor.kill();
+      await rpc('Browser.close').catch(() => {});
+      processo.kill();
     }
     await espera(2000);
   }
-  return [];
+  return origem ? null : [];
 }
 
 let entrandoTwitch = false;

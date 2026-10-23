@@ -250,7 +250,7 @@ function render() {
     const corpo = c.semNavegador && !c.pronto
       ? '<div class="aviso">Para entrar é preciso o Google Chrome ou o Microsoft Edge instalado.</div>'
       : c.entrando
-      ? '<div class="aviso">Faça login na janela do navegador que abriu.<br>Ela fecha sozinha quando terminar.</div>'
+      ? '<div class="aviso">Faça login na janela do navegador que abriu.<br>Quando o jogo abrir logado, feche a janela.</div>'
       : !c.pronto
       ? `<div class="aviso">Sem login ou carregando...<button data-entrar="${esc(c.conta)}">Entrar com Google</button></div>`
       : detalhes(c);
