@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld('api', {
   remover: (conta) => ipcRenderer.send('remover', conta),
   entrar: (conta) => ipcRenderer.send('entrar', conta),
   atualizar: () => ipcRenderer.send('atualizar'),
-  ferramenta: (jogo, conta) => ipcRenderer.invoke('ferramenta', jogo, conta),
+  ferramenta: (jogo, conta, escolha) => ipcRenderer.invoke('ferramenta', jogo, conta, escolha),
   acao: (conta, acao) => ipcRenderer.invoke('acao', conta, acao),
   recarregarContas: () => ipcRenderer.invoke('recarregar-contas'),
   vendaPreparar: (conta) => ipcRenderer.invoke('venda-preparar', conta),

@@ -12,7 +12,8 @@ function extrair() {
   for (const k of document.querySelectorAll('.eco-kpi')) {
     kpis[k.dataset.kpi] = { v: txt(k.querySelector('.eco-kpi-v')), h: txt(k.querySelector('.eco-kpi-h')), sub: txt(k.querySelector('.eco-kpi-sub')) };
   }
-  const time = [...document.querySelectorAll('#time .poke-linha')].map((p) => ({
+  const time = [...document.querySelectorAll('#time .poke-linha')].map((p, i) => ({
+    i,
     nome: txt(p.querySelector('.pl-nome')).replace(/Nv\d+|★/g, '').trim(),
     nv: txt(p.querySelector('.pl-lv')).replace('Nv', ''),
     poder: +(p.title.match(/poder (\d+)/)?.[1] ?? 0),
@@ -97,13 +98,18 @@ async function livesOficiais() {
   return canais;
 }
 
-// Roda na página do jogo: abre a ficha do Pokémon mais forte e aciona o "Copiar p/ ChatGPT" do jogo,
-// capturando o texto antes da área de transferência (a do usuário não é tocada). É a ficha que o
-// simulador de hunt aceita.
-async function copiarFicha() {
+// Roda na página do jogo: abre a ficha do Pokémon escolhido no painel ({i, nome}; sem escolha, o mais
+// forte) e aciona o "Copiar p/ ChatGPT" do jogo, capturando o texto antes da área de transferência (a do
+// usuário não é tocada). É a ficha que o simulador de hunt aceita.
+async function copiarFicha(escolha) {
   const espera = (ms) => new Promise((r) => setTimeout(r, ms));
   const poder = (p) => +(p.title.match(/poder (\d+)/)?.[1] ?? 0);
-  const maior = [...document.querySelectorAll('#time .poke-linha')].sort((a, b) => poder(b) - poder(a))[0];
+  const nomeDe = (p) => p.querySelector('.pl-nome')?.textContent.replace(/\s+/g, ' ').replace(/Nv\d+|★/g, '').trim();
+  const linhas = [...document.querySelectorAll('#time .poke-linha')];
+  // pela posição; se a equipe mudou de ordem desde a leitura do cartão, pelo nome
+  const escolhido = escolha && (linhas[escolha.i] && nomeDe(linhas[escolha.i]) === escolha.nome
+    ? linhas[escolha.i] : linhas.find((p) => nomeDe(p) === escolha.nome));
+  const maior = escolhido ?? linhas.sort((a, b) => poder(b) - poder(a))[0];
   if (!maior) return '';
   const jaAberta = !document.getElementById('ficha')?.classList.contains('hidden');
   const original = navigator.clipboard.writeText;
@@ -456,7 +462,8 @@ function montar({ texto = '', nick = '', kpis = {}, time = [], mochila = [], moe
     // Os números da sessão só existem no Modo Economia do jogo (configuração salva em cada janela)
     dicaSemKpis: 'Ligue o Modo Economia no jogo (abra esta conta aqui no Multidle) para ver XP, lucro, abates e capturas.',
     pronto: !!nick && !/^[—–-]$/.test(nick), // logado e com a tela carregada (deslogado, o jogo mostra "—")
-    ferramenta: equipe.length > 0, // dá para simular
+    // dá para simular: a equipe, mais forte primeiro, para escolher qual Pokémon vai para o simulador
+    ferramenta: equipe.length > 0 && equipe.map((p) => ({ rot: `${p.nome} · Nv${p.nv} · poder ${p.poder.toLocaleString('pt-BR')}`, v: { i: p.i, nome: p.nome } })),
   };
 }
 
@@ -503,7 +510,7 @@ module.exports = {
     confirmar: 'Zerar a sessão desta conta? XP, lucro, abates, capturas e achados da sessão voltam a 0 (a conta e os itens não mudam).',
     rodar: resetarSessao }],
   ferramenta: { rotulo: 'Simular', titulo: 'Simulador de hunt (pokedex.lotuz.tech)', url: 'https://pokedex.lotuz.tech/hunt-sim',
-    dica: 'Simular a melhor hunt para o Pokémon mais forte', preparar: copiarFicha, aplicar: preencherSimulador },
+    dica: 'Simular a melhor hunt para um Pokémon da equipe', escolher: 'Simular com qual Pokémon?', preparar: copiarFicha, aplicar: preencherSimulador },
   extrair,
   montar,
 };
@@ -559,6 +566,8 @@ if (require.main === module) {
   assert.deepStrictEqual(achadosB.itens.map((i) => [i.rot ?? '', i.n, i.apagado]),
     [['✨ vistos', 1, false], ['✨ pegos', 0, true], ['', 0, true], ['', 2, false]]); // shiny entra mesmo sem imagem
   assert.deepStrictEqual(equipeB.linhas.map((l) => [l.esq, l.destaque]), [['Golem', true], ['Charizard', false]]);
+  assert.deepStrictEqual(c.ferramenta.map((f) => f.v.nome), ['Golem', 'Charizard']);
+  assert.strictEqual(montar().ferramenta, false);
   assert.strictEqual(montar().pronto, false);
   assert.strictEqual(montar({ nick: '—' }).pronto, false);
   const parado = montar({ nick: 'X', caca: { id: 'parado', texto: 'parado há 2m' }, tempo: '1:02:03', hpTxt: '8.318 / 13.344', texto: '' });

@@ -438,7 +438,7 @@ function viewFerramenta(jogo) {
   return v;
 }
 
-ipcMain.handle('ferramenta', async (_e, jogoId, id) => {
+ipcMain.handle('ferramenta', async (_e, jogoId, id, escolha) => {
   const jogo = JOGOS[jogoId];
   if (!jogo?.ferramenta) return false;
   const wc = viewFerramenta(jogo).webContents;
@@ -448,7 +448,7 @@ ipcMain.handle('ferramenta', async (_e, jogoId, id) => {
   // décimos entre um passo e outro, então libera só enquanto ela roda
   const conta = views.get(id).webContents;
   conta.setBackgroundThrottling(false);
-  const dados = await conta.executeJavaScript(`(${jogo.ferramenta.preparar})()`).catch(() => '')
+  const dados = await conta.executeJavaScript(`(${jogo.ferramenta.preparar})(${JSON.stringify(escolha ?? null)})`).catch(() => '')
     .finally(() => conta.setBackgroundThrottling(true));
   if (!dados) return false;
   if (wc.isLoading()) await new Promise((r) => wc.once('did-finish-load', r));

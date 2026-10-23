@@ -277,7 +277,7 @@ function render() {
 $('#t').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (b?.dataset.entrar) return window.api.entrar(b.dataset.entrar);
-  if (b?.dataset.ferramenta) return abrirFerramenta(contas.find((c) => c.conta === b.dataset.ferramenta).jogo, b.dataset.ferramenta, b);
+  if (b?.dataset.ferramenta) return escolherParaFerramenta(contas.find((c) => c.conta === b.dataset.ferramenta), b);
   if (b?.dataset.acao) {
     const c = contas.find((x) => x.conta === b.dataset.acaoConta);
     const a = jogoDe(c.jogo)?.acoes.find((x) => x.id === b.dataset.acao);
@@ -368,11 +368,25 @@ async function abrirDepot(conta, aposVenda = false) {
   };
 }
 
+// Com mais de uma opção (no PokeIdle, a equipe), escolhe antes com qual a ferramenta roda
+function escolherParaFerramenta(c, botao) {
+  const opcoes = Array.isArray(c.ferramenta) ? c.ferramenta : [];
+  if (opcoes.length < 2) return abrirFerramenta(c.jogo, c.conta, botao, opcoes[0]?.v);
+  abrirModal(`${c.nome || c.conta}: ${jogoDe(c.jogo).ferramenta.escolher ?? 'Escolha'}`,
+    opcoes.map((o, i) => `<button data-escolha="${i}">${esc(o.rot)}</button>`).join(''), true);
+  $('#modal-corpo').onclick = (e) => {
+    const op = e.target.closest('[data-escolha]');
+    if (op && !op.disabled) abrirFerramenta(c.jogo, c.conta, op, opcoes[op.dataset.escolha].v);
+  };
+  modal = 'escolha';
+  layout();
+}
+
 // A ferramenta do jogo abre em modal por cima do painel; fechar volta tudo como estava
-async function abrirFerramenta(jogo, conta, botao) {
+async function abrirFerramenta(jogo, conta, botao, escolha) {
   const rotulo = botao?.textContent;
   if (botao && conta) { botao.disabled = true; botao.textContent = 'Preparando...'; }
-  const ok = await window.api.ferramenta(jogo, conta);
+  const ok = await window.api.ferramenta(jogo, conta, escolha);
   if (botao && conta) { botao.disabled = false; botao.textContent = rotulo; }
   if (!ok && conta) alert('Não consegui pegar os dados desta conta. Abra a conta e tente de novo.');
   abrirModal(jogoDe(jogo)?.ferramenta.titulo ?? '', '', false);
