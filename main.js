@@ -391,6 +391,15 @@ ipcMain.on('nova', async (_e, jogoId) => {
   criarView(conta);
   entrar(conta.id);
 });
+// Troca o cartão de lugar com o vizinho (passo -1/+1): a ordem dos cartões é a de contas.json
+ipcMain.on('mover', (_e, id, passo) => {
+  const i = contas.findIndex((c) => c.id === id);
+  const j = i + passo;
+  if (i < 0 || j < 0 || j >= contas.length) return;
+  [contas[i], contas[j]] = [contas[j], contas[i]];
+  salvarContas();
+  coletar();
+});
 ipcMain.on('remover', async (_e, id) => {
   const v = views.get(id);
   if (!v || !jogoDe(id)) return;

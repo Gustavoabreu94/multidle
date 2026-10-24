@@ -244,8 +244,12 @@ function render() {
       + 'e a conta aparece aqui sozinha quando o login terminar.</div>';
     return layout();
   }
-  $('#t').innerHTML = contas.map((c) => {
+  $('#t').innerHTML = contas.map((c, i) => {
     const jogo = jogoDe(c.jogo);
+    // muda o cartão de lugar (o login fica com a conta); só com o main.js que conhece "mover"
+    const mover = window.api.mover && contas.length > 1
+      ? `<button data-mover="${esc(c.conta)}" data-passo="-1" title="Mover para a esquerda" ${i ? '' : 'disabled'}>&#x25C0;</button>`
+        + `<button data-mover="${esc(c.conta)}" data-passo="1" title="Mover para a direita" ${i < contas.length - 1 ? '' : 'disabled'}>&#x25B6;</button>` : '';
     const aberta = abertas.has(c.conta);
     const corpo = c.semNavegador && !c.pronto
       ? '<div class="aviso">Para entrar é preciso o Google Chrome ou o Microsoft Edge instalado.</div>'
@@ -261,7 +265,7 @@ function render() {
     const bts = `<span class="bts">${acoes}${ferramenta}` + (aberta
       ? `<button data-max="${esc(c.conta)}" title="Ocupar o programa todo">&#x2922;</button><button data-fechar="${esc(c.conta)}" title="Esconder">&#x2013;</button>`
       : (c.pronto ? `<button data-max="${esc(c.conta)}" title="Abrir já ocupando o programa todo">&#x2922;</button>` : '')
-        + `<button class="remover" data-remover="${esc(c.conta)}" title="Remover esta conta do Multidle">&#x2715;</button>`) + '</span>';
+        + mover + `<button class="remover" data-remover="${esc(c.conta)}" title="Remover esta conta do Multidle">&#x2715;</button>`) + '</span>';
     // Estado da caça: "Caçando" ou "Parado" (borda vermelha); o motivo do jogo fica na dica
     const estado = c.estado && c.pronto
       ? `<span class="estado ${esc(c.estado.nivel)}" title="${esc(c.estado.dica)}">${esc(c.estado.texto)}`
@@ -285,6 +289,7 @@ $('#t').addEventListener('click', (e) => {
     return;
   }
   if (b?.dataset.depot) return abrirDepot(b.dataset.depot);
+  if (b?.dataset.mover) return window.api.mover(b.dataset.mover, Number(b.dataset.passo));
   if (b?.dataset.max) { maximizada = b.dataset.max; return layout(); }
   if (b?.dataset.fechar) { abertas.delete(b.dataset.fechar); return render(); }
   if (b?.dataset.remover) {
