@@ -487,14 +487,14 @@ function desenharSniper() {
     <div class="lives-barra"><button id="sn-ativar-todos">Ativar todos</button><button id="sn-desativar-todos">Desativar todos</button></div>
     <table class="depot"><tr><th></th><th>Alvo</th><th>Moeda</th><th>Conta</th><th>Preço máx.</th><th>Máx./dia</th><th>Hoje</th><th>Menor no Mercado</th></tr>
     ${c.alvos.map((a) => `<tr data-alvo="${esc(a.id)}"><td><input type="checkbox" data-campo="ativo" ${a.ativo ? 'checked' : ''}></td>
-      <td>${esc(a.nome)}</td><td>${esc(s.moedas[a.moeda] ?? a.moeda)}</td>
+      <td data-nome-alvo="${esc(a.id)}">${esc(a.nome)}</td><td>${esc(s.moedas[a.moeda] ?? a.moeda)}</td>
       <td><select data-campo="conta" title="Qual conta compra este alvo"><option value="">Qualquer conta</option>${Object.entries(s.nomes ?? {}).map(([id, n]) =>
         `<option value="${esc(id)}" ${a.conta === id ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></td>
       <td><input type="number" min="0" data-campo="precoMax" value="${esc(a.precoMax)}"></td>
       <td><input type="number" min="0" data-campo="maxDia" value="${esc(a.maxDia)}" style="width:60px"></td>
       <td data-hoje="${esc(a.id)}"></td><td data-menor="${esc(a.id)}"></td>
       <td><button data-remover="${esc(a.id)}" title="Remover este alvo">&#x2715;</button></td></tr>`).join('')}</table>
-    <div id="sn-novo" class="lives-barra"><button id="sn-adicionar">+ Adicionar alvo</button></div>
+    <div id="sn-novo" class="lives-barra"><button id="sn-adicionar">+ Adicionar alvo</button>${window.api.sniperPrecos ? '<button id="sn-precos" title="Menor e maior preço visto no Mercado em cada dia">Preços por dia</button>' : ''}</div>
     <div class="depot-rodape"><span id="sniper-gasto" class="fraco"></span><button id="sn-zerar" title="Zera o gasto e a quantidade comprada hoje em cada alvo">Zerar contagem de hoje</button></div>
     <div class="depot-rodape"><span class="fraco">Histórico (mais recente em cima) · <span id="sn-contagem"></span></span><span><button id="sn-historico" title="Abre o arquivo com todas as tentativas">Abrir histórico completo</button> <button id="sn-limpar" title="Apaga o histórico da tela e do arquivo">Limpar</button></span></div>
     <div class="lives-barra" id="sn-filtro">
@@ -534,6 +534,19 @@ function desenharSniper() {
   $('#sn-ativar-todos').onclick = () => marcarTodos(true);
   $('#sn-desativar-todos').onclick = () => marcarTodos(false);
   $('#sn-historico').onclick = () => window.api.sniperHistorico();
+  if ($('#sn-precos')) $('#sn-precos').onclick = () => desenharPrecos(); // só depois de reinstalar (precisa do main.js novo)
+  // Dica no nome de cada alvo: menor e maior do Mercado nos últimos 7 dias
+  window.api.sniperPrecos?.().then((precos) => {
+    const dias = Object.keys(precos).sort().reverse().slice(0, 7);
+    for (const el of document.querySelectorAll('[data-nome-alvo]')) {
+      const vistos = dias.filter((d) => precos[d][el.dataset.nomeAlvo]).map((d) => {
+        const p = precos[d][el.dataset.nomeAlvo];
+        return `${d.split('-').reverse().slice(0, 2).join('/')}: menor ${num(p.min)} · maior ${num(p.max)}`;
+      });
+      el.title = vistos.length ? `Mercado por dia\n${vistos.join('\n')}` : 'Sem preços anotados ainda (só alvos ativos)';
+      el.style.cursor = 'help';
+    }
+  });
   $('#sn-filtro').onchange = (e) => { if (e.target.dataset.f) { filtroHist[e.target.dataset.f] = e.target.value; mostrarHistorico(); } };
   $('#sn-filtro-limpar').onclick = () => { Object.assign(filtroHist, { conta: '', tipo: '', de: '', ate: '' }); desenharSniper(); };
   $('#sn-zerar').onclick = () => { if (confirm('Zerar o gasto e a quantidade de hoje? O sniper volta a poder comprar até os limites.')) window.api.sniperZerarDia(); };
@@ -562,6 +575,27 @@ function desenharSniper() {
   };
   layout();
   atualizarSniper();
+}
+// Menor e maior preço do Mercado por dia (o programa anota a cada consulta do sniper), filtro por alvo
+let filtroPrecos = '';
+async function desenharPrecos() {
+  const precos = await window.api.sniperPrecos();
+  const linhas = Object.entries(precos).sort(([a], [b]) => b.localeCompare(a))
+    .flatMap(([dia, alvos]) => Object.entries(alvos).map(([id, p]) => ({ dia, id, ...p })));
+  const alvos = new Map(linhas.map((l) => [l.id, `${l.nome} · ${estadoSniper?.moedas[l.moeda] ?? l.moeda}`]));
+  const vistas = linhas.filter((l) => !filtroPrecos || l.id === filtroPrecos);
+  const dia = (d) => d.split('-').reverse().join('/');
+  abrirModal('Preços por dia', `<div class="lives-barra"><button id="pr-voltar">← Sniper</button>
+      <select id="pr-alvo"><option value="">Todos os alvos</option>${[...alvos].map(([id, n]) => `<option value="${esc(id)}" ${filtroPrecos === id ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+      <span class="fraco">Anúncios abertos vistos pelo sniper (só alvos ativos)</span></div>
+    <div class="sniper-registro">${vistas.length ? `<table class="depot"><tr><th>Dia</th><th>Alvo</th><th>Moeda</th><th>Menor</th><th>Maior</th></tr>${vistas.map((l) =>
+      `<tr><td>${dia(l.dia)}</td><td>${esc(l.nome)}</td><td>${esc(estadoSniper?.moedas[l.moeda] ?? l.moeda)}</td><td>${num(l.min)}</td><td>${num(l.max)}</td></tr>`).join('')}</table>`
+      : 'Nada anotado ainda: os preços aparecem depois das consultas do sniper ligado.'}</div>`, false);
+  $('#modal').classList.add('sniper');
+  modal = 'precos';
+  $('#pr-voltar').onclick = () => desenharSniper();
+  $('#pr-alvo').onchange = (e) => { filtroPrecos = e.target.value; desenharPrecos(); };
+  layout();
 }
 let redesenharSniper = false; // depois de adicionar/remover, a tabela é desenhada de novo com o que o programa salvou
 window.api.aoSniper((s) => {

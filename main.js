@@ -659,6 +659,20 @@ function cfgSniper() {
   return config.sniper;
 }
 const hoje = () => new Date().toLocaleDateString('sv-SE'); // AAAA-MM-DD no fuso do PC
+// Menor e maior preço visto no Mercado por dia e por alvo ({dia: {alvo: {nome, moeda, min, max}}}). Só dos
+// alvos ativos, a cada consulta do sniper; no shiny/diamantes a consulta traz só a 1ª página (mais baratos)
+const ARQ_PRECOS = path.join(DADOS, 'precos.json');
+const precos = (() => { try { return JSON.parse(fs.readFileSync(ARQ_PRECOS, 'utf8')); } catch { return {}; } })();
+function anotarPrecos(alvo, valores) {
+  if (!valores.length) return;
+  const dia = (precos[hoje()] ??= {});
+  const p = dia[alvo.id] ?? { min: Infinity, max: -Infinity };
+  const min = Math.min(p.min, ...valores), max = Math.max(p.max, ...valores);
+  if (min === p.min && max === p.max) return;
+  dia[alvo.id] = { nome: alvo.nome, moeda: alvo.moeda, min, max };
+  fs.writeFile(ARQ_PRECOS, JSON.stringify(precos), () => {});
+}
+ipcMain.handle('sniper-precos', () => precos);
 function gastos() {
   if (config.sniperGasto?.dia !== hoje()) config.sniperGasto = { dia: hoje(), real: { conta: {}, alvo: {} }, sim: { conta: {}, alvo: {} } };
   return config.sniperGasto[cfgSniper().simulacao ? 'sim' : 'real'];
@@ -830,7 +844,9 @@ async function rodarSniper() {
       }
       if (r?.erro) { alvo.erro = r.erro; continue; }
       alvo.erro = '';
-      const anuncios = j.anuncios(r.linhas, alvo).filter((a) => a.aberto && a.moeda === alvo.moeda && !nossos.has(a.vendedor));
+      const abertos = j.anuncios(r.linhas, alvo).filter((a) => a.aberto && a.moeda === alvo.moeda);
+      anotarPrecos(alvo, abertos.map((a) => a.preco)); // o preço do Mercado conta também os anúncios das nossas contas
+      const anuncios = abertos.filter((a) => !nossos.has(a.vendedor));
       alvo.menor = anuncios.length ? Math.min(...anuncios.map((a) => a.preco)) : null;
       alvo.visto = Date.now();
       for (const a of anuncios.filter((x) => x.preco <= alvo.precoMax && !tentados.has(x.id))) agendarCompra(alvo, a, r.desvio, prontas);

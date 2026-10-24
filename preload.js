@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('api', {
   sniperPedir: () => ipcRenderer.send('sniper-pedir'),
   sniperSalvar: (novo) => ipcRenderer.send('sniper-salvar', novo),
   sniperCatalogo: () => ipcRenderer.invoke('sniper-catalogo'),
+  sniperPrecos: () => ipcRenderer.invoke('sniper-precos'),
   sniperHistorico: () => ipcRenderer.send('sniper-historico'),
   sniperLimpar: () => ipcRenderer.send('sniper-limpar'),
   sniperZerarDia: () => ipcRenderer.send('sniper-zerar-dia'),
