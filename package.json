@@ -10,7 +10,8 @@
     "start": "electron .",
     "test": "node jogos/pokeidle.js",
     "dist": "npm test && electron-builder --win nsis",
-    "dist:store": "npm test && electron-builder --win appx --publish never"
+    "dist:store": "npm test && electron-builder --win appx --publish never",
+    "dist:linux": "npm test && electron-builder --linux AppImage deb --publish never"
   },
   "devDependencies": {
     "electron": "^33.2.1",
@@ -30,6 +31,14 @@
     "win": {
       "target": "nsis",
       "signAndEditExecutable": false
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Game",
+      "artifactName": "Multidle-${version}.${ext}"
     },
     "publish": {
       "provider": "github",
@@ -60,5 +69,10 @@
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
+  },
+  "homepage": "https://gustavoabreu94.github.io/multidle/",
+  "author": {
+    "name": "Gustavoabreu94",
+    "email": "gustavoabreu94@users.noreply.github.com"
   }
 }

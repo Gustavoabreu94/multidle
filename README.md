@@ -52,6 +52,8 @@ As regras podem mudar: confira os termos atuais do jogo. Usar o Multidle é por 
 
 Baixe o instalador em **[Releases](../../releases)** e execute.
 
+**Ubuntu/Linux:** baixe o `Multidle-X.Y.Z.deb` (`sudo apt install ./Multidle-X.Y.Z.deb`) ou o `.AppImage` (`chmod +x` e execute; no Ubuntu 22.04+ precisa de `sudo apt install libfuse2`). Só o AppImage se atualiza sozinho. O login usa o Google Chrome ou o Edge instalados (o Chromium do snap não funciona).
+
 O instalador não é assinado digitalmente: na primeira vez o Windows pode mostrar "O Windows protegeu o computador" → **Mais informações** → **Executar assim mesmo**.
 
 ### Dá para confiar no instalador?

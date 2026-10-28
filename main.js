@@ -46,21 +46,29 @@ app.userAgentFallback = fs.existsSync(ARQ_UA)
   ? fs.readFileSync(ARQ_UA, 'utf8').trim()
   : app.userAgentFallback.replace(/\s?(Electron|multidle)\/\S+/gi, '');
 
-// Navegador para o login: Chrome, ou o Edge que vem em todo Windows
-const NAVEGADOR = [
+// Navegador para o login: Chrome, ou o Edge que vem em todo Windows. No Linux, o primeiro que estiver no PATH
+// (Chromium por último: o do snap do Ubuntu não grava em ~/.config, onde fica o perfil do login)
+const NAVEGADOR = process.platform === 'win32' ? [
   [process.env.PROGRAMFILES, 'Google/Chrome/Application/chrome.exe'],
   [process.env['PROGRAMFILES(X86)'], 'Google/Chrome/Application/chrome.exe'],
   [process.env.LOCALAPPDATA, 'Google/Chrome/Application/chrome.exe'],
   [process.env['PROGRAMFILES(X86)'], 'Microsoft/Edge/Application/msedge.exe'],
   [process.env.PROGRAMFILES, 'Microsoft/Edge/Application/msedge.exe'],
-].filter(([base]) => base).map(([base, exe]) => path.join(base, exe)).find((p) => fs.existsSync(p));
+].filter(([base]) => base).map(([base, exe]) => path.join(base, exe)).find((p) => fs.existsSync(p))
+  : ['google-chrome', 'google-chrome-stable', 'microsoft-edge', 'microsoft-edge-stable', 'chromium', 'chromium-browser']
+    .flatMap((exe) => (process.env.PATH ?? '').split(path.delimiter).map((d) => path.join(d, exe))).find((p) => fs.existsSync(p));
+
+// Pastas de dados do Chrome/Edge do usuário
+const PERFIS_NAVEGADOR = process.platform === 'win32'
+  ? ['Google/Chrome/User Data', 'Microsoft/Edge/User Data'].map((p) => path.join(process.env.LOCALAPPDATA ?? '', p))
+  : ['google-chrome', 'microsoft-edge', 'chromium'].map((p) => path.join(app.getPath('appData'), p));
 
 // Extensão instalada no Chrome/Edge do usuário (qualquer perfil): pasta da versão mais nova
 function acharExtensao(id) {
   const versao = (v) => v.split(/[._]/).map(Number);
   const maisNova = (a, b) => { const x = versao(a), y = versao(b); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0) ? a : b; return a; };
   const achadas = [];
-  for (const base of ['Google/Chrome/User Data', 'Microsoft/Edge/User Data'].map((p) => path.join(process.env.LOCALAPPDATA ?? '', p))) {
+  for (const base of PERFIS_NAVEGADOR) {
     if (!fs.existsSync(base)) continue;
     for (const perfil of fs.readdirSync(base)) {
       const dir = path.join(base, perfil, 'Extensions', id);

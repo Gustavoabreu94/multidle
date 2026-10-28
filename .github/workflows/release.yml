@@ -74,3 +74,26 @@ jobs:
           } > notas.md
           # latest.yml e .blockmap: o que a atualização automática do app consulta e baixa
           gh release create "$GITHUB_REF_NAME" "$exe" dist/*.blockmap dist/latest.yml --title "Multidle ${GITHUB_REF_NAME#v}" --notes-file notas.md
+
+  # Linux (Ubuntu): AppImage (atualiza sozinho) e .deb, anexados à release que o job do Windows criou
+  linux:
+    needs: windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx electron-builder --linux AppImage deb --publish never
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.AppImage
+            dist/*.deb
+      # latest-linux.yml: o que a atualização automática do AppImage consulta
+      - run: gh release upload "$GITHUB_REF_NAME" dist/*.AppImage dist/*.deb dist/latest-linux.yml
+        env:
+          GH_TOKEN: ${{ github.token }}
