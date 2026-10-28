@@ -40,6 +40,10 @@
       "category": "Game",
       "artifactName": "Multidle-${version}.${ext}"
     },
+    "deb": {
+      "afterInstall": "build/deb-instalar.sh",
+      "afterRemove": "build/deb-remover.sh"
+    },
     "publish": {
       "provider": "github",
       "owner": "Gustavoabreu94",

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Multidle — várias contas do PokeIdle numa janela só</title>
-<meta name="description" content="Multidle: programa gratuito e open source para Windows que abre várias contas do PokeIdle numa janela só, com um painel de XP, lucro, abates, mochila e equipe de cada conta. Não oficial.">
+<meta name="description" content="Multidle: programa gratuito e open source para Windows e Linux (Ubuntu) que abre várias contas do PokeIdle numa janela só, com um painel de XP, lucro, abates, mochila e equipe de cada conta. Não oficial.">
 <link rel="canonical" href="https://gustavoabreu94.github.io/multidle/">
 <meta name="google-site-verification" content="4_4Qs7FPHsVmgErHRdZPyEG8laCVAbHD3aQi_lDO6z8">
 <meta property="og:type" content="website">
@@ -14,7 +14,7 @@
 <meta property="og:url" content="https://gustavoabreu94.github.io/multidle/">
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Multidle","operatingSystem":"Windows 10, Windows 11","applicationCategory":"GameApplication","description":"Várias contas de jogos idle (PokeIdle) numa janela só, com painel de resumo por conta.","offers":{"@type":"Offer","price":"0","priceCurrency":"BRL"},"downloadUrl":"https://github.com/Gustavoabreu94/multidle/releases/latest","license":"https://opensource.org/licenses/MIT"}
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Multidle","operatingSystem":"Windows 10, Windows 11, Ubuntu 22.04+","applicationCategory":"GameApplication","description":"Várias contas de jogos idle (PokeIdle) numa janela só, com painel de resumo por conta.","offers":{"@type":"Offer","price":"0","priceCurrency":"BRL"},"downloadUrl":"https://github.com/Gustavoabreu94/multidle/releases/latest","license":"https://opensource.org/licenses/MIT"}
 </script>
 <style>
 :root{--fundo:#1f1523;--fundo2:#160f19;--caixa:#2f2134;--borda:#4a3550;--texto:#f3e9f5;--fraco:#a98bb3;--lilas:#c9a8d4;--roxo:#9b4dca;--roxo2:#b06ee0;--ouro:#ffd166;--rosa:#ff7bb0}
@@ -83,12 +83,12 @@ footer p{margin:6px 0}
 <main>
   <div class="heroi largura">
     <h1>Várias contas do <span>PokeIdle</span><br>numa janela só</h1>
-    <p>Um programa leve para Windows que abre todas as suas contas lado a lado, com um painel que mostra XP, lucro, abates, mochila e equipe de cada uma — sem uma pilha de abas do navegador.</p>
+    <p>Um programa leve para Windows e Linux que abre todas as suas contas lado a lado, com um painel que mostra XP, lucro, abates, mochila e equipe de cada uma — sem uma pilha de abas do navegador.</p>
     <div class="botoes">
-      <a class="botao principal" href="https://github.com/Gustavoabreu94/multidle/releases/latest">&#x2B07; Baixar para Windows</a>
+      <a class="botao principal" href="https://github.com/Gustavoabreu94/multidle/releases/latest">&#x2B07; Baixar para Windows ou Linux</a>
       <a class="botao secundario" href="https://github.com/Gustavoabreu94/multidle">Ver o código no GitHub</a>
     </div>
-    <div class="nota">Gratuito e open source (MIT) · Windows 10/11 · não oficial</div>
+    <div class="nota">Gratuito e open source (MIT) · Windows 10/11 e Ubuntu 22.04+ · não oficial</div>
     <figure class="print">
       <img src="painel.png" width="1280" height="900" alt="Painel do Multidle com quatro contas do PokeIdle: XP, lucro líquido, abates, capturas, mochila, achados e equipe de cada conta">
       <figcaption>O painel com quatro contas (dados de exemplo)</figcaption>
@@ -122,12 +122,12 @@ footer p{margin:6px 0}
   <section id="instalar"><div class="largura">
     <h2>Como instalar</h2>
     <ol class="passos">
-      <li>Baixe o <b>Multidle-Setup</b> mais recente em <a href="https://github.com/Gustavoabreu94/multidle/releases/latest">Releases</a> (seção <b>Assets</b>).</li>
-      <li>Execute o arquivo. Se o Windows mostrar <b>“O Windows protegeu o computador”</b>, clique em <b>Mais informações</b> → <b>Executar assim mesmo</b> (o instalador não é assinado digitalmente).</li>
+      <li>Baixe a versão mais recente em <a href="https://github.com/Gustavoabreu94/multidle/releases/latest">Releases</a> (seção <b>Assets</b>): <b>Multidle-Setup</b> (.exe) no Windows, <b>Multidle</b> (.deb) no Ubuntu.</li>
+      <li>No Ubuntu: <code>sudo apt install ./Multidle-X.Y.Z.deb</code> e abra o Multidle pelo menu de aplicativos. No Windows: execute o arquivo. Se o Windows mostrar <b>“O Windows protegeu o computador”</b>, clique em <b>Mais informações</b> → <b>Executar assim mesmo</b> (o instalador não é assinado digitalmente).</li>
       <li>Clique em <b>+ Nova conta</b>: o Chrome ou o Edge abre para você entrar no jogo. Quando o login termina, a conta aparece no painel sozinha.</li>
-      <li>Pronto: as próximas versões chegam sozinhas. O Multidle baixa a atualização em segundo plano e mostra <b>⬆ Atualizar</b> na barra de cima; um clique reinicia já atualizado, com as contas logadas.</li>
+      <li>Pronto: as próximas versões chegam sozinhas. O Multidle baixa a atualização em segundo plano e mostra <b>⬆ Atualizar</b> na barra de cima; um clique reinicia já atualizado, com as contas logadas. No Ubuntu, pelo .deb, é só instalar o arquivo novo por cima.</li>
     </ol>
-    <p class="nota">É preciso ter o Google Chrome ou o Microsoft Edge (usados só no login, porque o Google bloqueia login dentro de aplicativos). Seus logins ficam só no seu computador.</p>
+    <p class="nota">É preciso ter o Google Chrome ou o Microsoft Edge (usados só no login, porque o Google bloqueia login dentro de aplicativos). No Ubuntu, o Chromium que vem pelo snap não serve: instale o Chrome ou o Edge. Seus logins ficam só no seu computador.</p>
   </div></section>
 
   <section id="apoie"><div class="largura">
